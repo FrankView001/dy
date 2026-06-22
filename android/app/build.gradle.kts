@@ -13,11 +13,37 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        // Only ship Chinese + English string resources to slim AppCompat/Material.
+        resourceConfigurations += setOf("zh", "en")
     }
 
     buildTypes {
+        debug {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/*.kotlin_module",
+                "META-INF/AL2.0", "META-INF/LGPL2.1",
+                "META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*",
+                "kotlin/**", "okhttp3/internal/publicsuffix/**"
+            )
         }
     }
 

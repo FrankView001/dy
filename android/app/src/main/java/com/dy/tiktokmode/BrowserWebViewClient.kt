@@ -73,6 +73,12 @@ class BrowserWebViewClient(
         val sb = StringBuilder()
         if (prefs.nightMode) sb.append(NIGHT_CSS)
         if (prefs.customCss.isNotBlank()) sb.append(prefs.customCss)
+        // Per-host user-marked ad selectors.
+        val host = try { android.net.Uri.parse(view.url ?: "").host } catch (_: Exception) { null }
+        val marks = AdMarkStore.selectorsFor(host)
+        if (marks.isNotEmpty()) {
+            sb.append(marks.joinToString(",")).append("{display:none!important;visibility:hidden!important;}")
+        }
         if (sb.isEmpty()) return
         val css = sb.toString().replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
         view.evaluateJavascript(

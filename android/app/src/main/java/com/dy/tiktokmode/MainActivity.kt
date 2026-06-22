@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity() {
         history = HistoryStore(this)
         bookmarks = BookmarkStore(this)
         AdBlocker.init(applicationContext)
+        AdMarkStore.init(applicationContext)
         WebView.setWebContentsDebuggingEnabled(true)
 
         webContainer = findViewById(R.id.webContainer)
@@ -365,11 +366,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun showMenu() {
         val sheet = BottomSheetDialog(this)
-        val scroll = androidx.core.widget.NestedScrollView(this)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundResource(R.drawable.bg_sheet)
-            setPadding(dp(6), dp(10), dp(6), dp(20))
+            setPadding(dp(6), dp(10), dp(6), dp(16))
         }
 
         // Drag handle.
@@ -382,11 +382,10 @@ class MainActivity : AppCompatActivity() {
 
         val url = tabs.current?.currentUrl ?: ""
         val isBookmarked = bookmarks.isBookmarked(url)
-
         fun act(block: () -> Unit): () -> Unit = { sheet.dismiss(); block() }
 
-        box.addView(sectionTitle("常用"))
-        box.addView(tileGrid(listOf(
+        // Single flat list of tiles, paged 2x5 with horizontal swipe (Via style).
+        val tiles = listOf(
             Tile(if (isBookmarked) R.drawable.ic_bookmark_filled else R.drawable.ic_bookmark,
                 if (isBookmarked) "已收藏" else "添加书签", isBookmarked, act {
                     if (isBookmarked) bookmarks.remove(url)
@@ -399,14 +398,11 @@ class MainActivity : AppCompatActivity() {
             Tile(R.drawable.ic_music_note, "抖音模式", false, act { enterTikTok() }),
             Tile(R.drawable.ic_incognito, "隐身标签", false, act { openInNewTab(Prefs.HOME_URL, true); omnibox.requestFocus() }),
             Tile(R.drawable.ic_link, "复制链接", false, act { copyUrl() }),
-            Tile(R.drawable.ic_share, "其他应用", false, act { openExternally() })
-        )))
-
-        box.addView(sectionTitle("开关"))
-        box.addView(tileGrid(listOf(
+            Tile(R.drawable.ic_share, "其他应用", false, act { openExternally() }),
             Tile(R.drawable.ic_shield, "广告拦截", prefs.adBlockEnabled, act {
                 prefs.adBlockEnabled = !prefs.adBlockEnabled; reloadCurrent()
             }),
+            Tile(R.drawable.ic_target, "标记广告", false, act { enterAdMarker() }),
             Tile(R.drawable.ic_night, "夜间模式", prefs.nightMode, act {
                 prefs.nightMode = !prefs.nightMode; reloadCurrent()
             }),
@@ -417,22 +413,114 @@ class MainActivity : AppCompatActivity() {
             Tile(R.drawable.ic_image, "无图模式", prefs.noImageMode, act {
                 prefs.noImageMode = !prefs.noImageMode
                 tabs.current?.let { applyUaAndImages(it.webView.settings); it.webView.reload() }
-            })
-        )))
-
-        box.addView(sectionTitle("工具"))
-        box.addView(tileGrid(listOf(
+            }),
             Tile(R.drawable.ic_stream, "资源嗅探", false, act { showSniffer() }),
             Tile(R.drawable.ic_camera, "整页截图", false, act { captureScreenshot() }),
             Tile(R.drawable.ic_download, "离线保存", false, act { saveOffline() }),
             Tile(R.drawable.ic_code, "查看源码", false, act { viewSource() }),
             Tile(R.drawable.ic_delete, "清除数据", false, act { confirmClearData() }),
             Tile(R.drawable.ic_settings, "设置", false, act { startActivity(Intent(this, SettingsActivity::class.java)) })
-        )))
+        )
 
-        scroll.addView(box)
-        sheet.setContentView(scroll)
+        // 2 rows x 5 cols per page; page indicator dots beneath.
+        val perPage = 10
+        val pages = tiles.chunked(perPage)
+        val pager = androidx.viewpager2.widget.ViewPager2(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(220)
+            )
+            adapter = TilePagerAdapter(pages)
+        }
+        box.addView(pager)
+
+        // Dot indicator.
+        val dots = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        val dotViews = pages.indices.map { i ->
+            View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(6), dp(6)).apply {
+                    leftMargin = dp(4); rightMargin = dp(4)
+                }
+                setBackgroundResource(if (i == 0) R.drawable.bg_dot_active else R.drawable.bg_dot)
+            }.also { dots.addView(it) }
+        }
+        pager.registerOnPageChangeCallback(object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                dotViews.forEachIndexed { i, v ->
+                    v.setBackgroundResource(if (i == position) R.drawable.bg_dot_active else R.drawable.bg_dot)
+                }
+            }
+        })
+        if (pages.size > 1) box.addView(dots)
+
+        sheet.setContentView(box)
         sheet.show()
+    }
+
+    /** Adapter that renders one 2x5 page of tiles per ViewPager2 page. */
+    private inner class TilePagerAdapter(private val pages: List<List<Tile>>) :
+        androidx.recyclerview.widget.RecyclerView.Adapter<TilePagerAdapter.VH>() {
+        inner class VH(val grid: android.widget.GridLayout) :
+            androidx.recyclerview.widget.RecyclerView.ViewHolder(grid)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+            val grid = android.widget.GridLayout(this@MainActivity).apply {
+                columnCount = 5
+                rowCount = 2
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+            return VH(grid)
+        }
+
+        override fun getItemCount(): Int = pages.size
+
+        override fun onBindViewHolder(holder: VH, position: Int) {
+            holder.grid.removeAllViews()
+            pages[position].forEach { t -> holder.grid.addView(buildTile(t)) }
+        }
+    }
+
+    /** Builds a single tile cell sized to fit a 5-column grid row. */
+    private fun buildTile(t: Tile): View {
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(4), dp(10), dp(4), dp(10))
+            setBackgroundResource(outValueSelectableBackground())
+            setOnClickListener { t.onClick() }
+            layoutParams = android.widget.GridLayout.LayoutParams().apply {
+                width = 0
+                height = 0
+                columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                rowSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+            }
+        }
+        val iconWrap = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
+            if (t.active) setBackgroundResource(R.drawable.bg_tile_active)
+        }
+        iconWrap.addView(ImageView(this).apply {
+            setImageResource(t.icon)
+            if (t.active) setColorFilter(0xFFFE2C55.toInt())
+            layoutParams = FrameLayout.LayoutParams(dp(22), dp(22)).apply { gravity = Gravity.CENTER }
+        })
+        cell.addView(iconWrap)
+        cell.addView(TextView(this).apply {
+            text = t.label
+            setTextColor(if (t.active) 0xFFFE2C55.toInt() else 0xFFE8E8EC.toInt())
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, 0)
+            maxLines = 1
+        })
+        return cell
     }
 
     private fun sectionTitle(text: String): TextView = TextView(this).apply {
@@ -440,46 +528,6 @@ class MainActivity : AppCompatActivity() {
         setTextColor(0xFF8A8A92.toInt())
         textSize = 12f
         setPadding(dp(14), dp(14), dp(14), dp(6))
-    }
-
-    /** Builds a 4-column grid of icon tiles. */
-    private fun tileGrid(tiles: List<Tile>): android.widget.GridLayout {
-        val cols = 4
-        val grid = android.widget.GridLayout(this).apply {
-            columnCount = cols
-        }
-        tiles.forEach { t ->
-            val cell = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                setPadding(dp(4), dp(12), dp(4), dp(12))
-                setBackgroundResource(outValueSelectableBackground())
-                setOnClickListener { t.onClick() }
-                layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                    width = 0
-                    columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
-                }
-            }
-            val iconWrap = FrameLayout(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(46), dp(46))
-                if (t.active) setBackgroundResource(R.drawable.bg_tile_active)
-            }
-            iconWrap.addView(ImageView(this).apply {
-                setImageResource(t.icon)
-                if (t.active) setColorFilter(0xFFFE2C55.toInt())
-                layoutParams = FrameLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER }
-            })
-            cell.addView(iconWrap)
-            cell.addView(TextView(this).apply {
-                text = t.label
-                setTextColor(if (t.active) 0xFFFE2C55.toInt() else 0xFFE8E8EC.toInt())
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setPadding(0, dp(6), 0, 0)
-            })
-            grid.addView(cell)
-        }
-        return grid
     }
 
     private fun outValueSelectableBackground(): Int {
@@ -809,6 +857,21 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {}
             runOnUiThread { showVideoFeed(items) }
         }
+
+        /** Called by the ad-mark picker JS when the user taps an element. */
+        @JavascriptInterface
+        fun onMarkAd(host: String, selector: String) {
+            AdMarkStore.add(host, selector)
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, "已屏蔽：$selector", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun enterAdMarker() {
+        val wv = tabs.current?.webView ?: return
+        Toast.makeText(this, "点击页面上的广告即可屏蔽，再次点击空白处退出", Toast.LENGTH_LONG).show()
+        wv.evaluateJavascript(AD_MARK_JS, null)
     }
 
     // ---------------- Back / lifecycle ----------------
@@ -842,5 +905,58 @@ class MainActivity : AppCompatActivity() {
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
         const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+        /**
+         * Via-style ad-mark picker. Outlines the hovered element and on click
+         * computes a compact CSS selector, posts it to the Android bridge, and
+         * hides the element. Tap blank area (html/body) to exit.
+         */
+        const val AD_MARK_JS = """(function(){
+          if(window.__dyAdMark){window.__dyAdMark.stop();return;}
+          var ov=document.createElement('div');
+          ov.style.cssText='position:fixed;pointer-events:none;border:2px solid #FE2C55;background:rgba(254,44,85,0.18);z-index:2147483647;transition:all .04s;';
+          document.body.appendChild(ov);
+          function sel(el){
+            if(!el||el===document.body||el===document.documentElement) return '';
+            var t=el.tagName.toLowerCase();
+            if(el.id&&/^[A-Za-z_][\w-]*$/.test(el.id)) return t+'#'+el.id;
+            var cs=[].slice.call(el.classList||[]).filter(function(c){return /^[A-Za-z_][\w-]*$/.test(c)&&c.length<40;}).slice(0,3);
+            if(cs.length) return t+'.'+cs.join('.');
+            var p=el.parentNode;
+            if(p&&p.children){
+              var sibs=[].slice.call(p.children).filter(function(c){return c.tagName===el.tagName;});
+              if(sibs.length>1) t+=':nth-of-type('+(sibs.indexOf(el)+1)+')';
+            }
+            var ps=sel(p);
+            return ps?ps+'>'+t:t;
+          }
+          function mv(e){
+            var el=e.target;
+            if(!el||el===ov) return;
+            var r=el.getBoundingClientRect();
+            ov.style.left=r.left+'px';ov.style.top=r.top+'px';
+            ov.style.width=r.width+'px';ov.style.height=r.height+'px';
+          }
+          function cl(e){
+            e.preventDefault();e.stopPropagation();
+            var el=e.target;
+            if(!el||el===document.body||el===document.documentElement){stop();return;}
+            var s=sel(el);
+            if(!s){stop();return;}
+            try{Android.onMarkAd(location.hostname, s);}catch(_){}
+            try{document.querySelectorAll(s).forEach(function(n){n.style.setProperty('display','none','important');});}catch(_){}
+          }
+          function stop(){
+            document.removeEventListener('mousemove',mv,true);
+            document.removeEventListener('click',cl,true);
+            document.removeEventListener('touchstart',mv,true);
+            if(ov.parentNode)ov.parentNode.removeChild(ov);
+            window.__dyAdMark=null;
+          }
+          document.addEventListener('mousemove',mv,true);
+          document.addEventListener('touchstart',mv,true);
+          document.addEventListener('click',cl,true);
+          window.__dyAdMark={stop:stop};
+        })();"""
     }
 }
