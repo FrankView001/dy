@@ -8,7 +8,7 @@ import java.io.File
 data class SiteEntry(val title: String, val url: String, val time: Long = System.currentTimeMillis())
 
 /** Tiny JSON-file backed list store. Avoids a DB dependency for simple lists. */
-private abstract class JsonListStore(context: Context, fileName: String) {
+abstract class JsonListStore(context: Context, fileName: String) {
     protected val file = File(context.filesDir, fileName)
 
     protected fun readArray(): JSONArray =

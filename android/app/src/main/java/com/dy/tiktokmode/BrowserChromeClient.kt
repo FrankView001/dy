@@ -12,27 +12,27 @@ import android.webkit.WebView
  * file-upload chooser delegation back to the activity.
  */
 class BrowserChromeClient(
-    private val onProgress: (Int) -> Unit,
-    private val onTitle: (String?) -> Unit,
-    private val onShowCustomView: (View, WebChromeClient.CustomViewCallback) -> Unit,
-    private val onHideCustomView: () -> Unit,
-    private val onFileChooser: (ValueCallback<Array<Uri>>) -> Boolean
+    private val progressCb: (Int) -> Unit,
+    private val titleCb: (String?) -> Unit,
+    private val showCustomViewCb: (View, WebChromeClient.CustomViewCallback) -> Unit,
+    private val hideCustomViewCb: () -> Unit,
+    private val fileChooserCb: (ValueCallback<Array<Uri>>) -> Boolean
 ) : WebChromeClient() {
 
     override fun onProgressChanged(view: WebView, newProgress: Int) {
-        onProgress(newProgress)
+        progressCb(newProgress)
     }
 
     override fun onReceivedTitle(view: WebView, title: String?) {
-        onTitle(title)
+        titleCb(title)
     }
 
     override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-        onShowCustomView(view, callback)
+        showCustomViewCb(view, callback)
     }
 
     override fun onHideCustomView() {
-        onHideCustomView()
+        hideCustomViewCb()
     }
 
     override fun onPermissionRequest(request: PermissionRequest) {
@@ -44,5 +44,5 @@ class BrowserChromeClient(
         webView: WebView,
         filePathCallback: ValueCallback<Array<Uri>>,
         fileChooserParams: FileChooserParams
-    ): Boolean = onFileChooser(filePathCallback)
+    ): Boolean = fileChooserCb(filePathCallback)
 }
