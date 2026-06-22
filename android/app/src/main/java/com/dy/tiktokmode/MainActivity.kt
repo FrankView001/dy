@@ -7,8 +7,9 @@ import android.view.KeyEvent
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
+import android.widget.Button
 import android.widget.EditText
-import android.widget.ImageButton
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -22,7 +23,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var videoPager: ViewPager2
     private lateinit var browseLayer: View
     private lateinit var tiktokModeBtn: View
-    private lateinit var closeTiktokBtn: ImageButton
+    private lateinit var normalModeBtn: Button
+    private lateinit var startupText: TextView
 
     private var pagerAdapter: VideoPagerAdapter? = null
     private val pageChangeCallback = object : ViewPager2.OnPageChangeCallback() {
@@ -30,6 +32,9 @@ class MainActivity : AppCompatActivity() {
             pagerAdapter?.onPageSelected(position)
         }
     }
+
+    /** When true, the next successful home page load auto-enters TikTok mode. */
+    private var autoEnterArmed = true
 
     private val defaultUrl = "https://missav.ai/"
 
@@ -43,7 +48,8 @@ class MainActivity : AppCompatActivity() {
         videoPager = findViewById(R.id.videoPager)
         browseLayer = findViewById(R.id.browseLayer)
         tiktokModeBtn = findViewById(R.id.tiktokModeBtn)
-        closeTiktokBtn = findViewById(R.id.closeTiktokBtn)
+        normalModeBtn = findViewById(R.id.normalModeBtn)
+        startupText = findViewById(R.id.startupText)
 
         homeWebView.settings.apply {
             javaScriptEnabled = true
@@ -51,10 +57,12 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
-        homeWebView.webViewClient = HeaderStrippingWebViewClient()
+        homeWebView.webViewClient = HeaderStrippingWebViewClient { onHomePageLoaded() }
         homeWebView.addJavascriptInterface(JsBridge(), "Android")
 
         addressBar.setText(defaultUrl)
+        // The home WebView loads in the background so we can scrape links from it
+        // even though the user starts out looking at the TikTok feed.
         homeWebView.loadUrl(defaultUrl)
 
         findViewById<View>(R.id.goButton).setOnClickListener { navigateFromAddressBar() }
@@ -68,8 +76,8 @@ class MainActivity : AppCompatActivity() {
             } else false
         }
 
-        tiktokModeBtn.setOnClickListener { enterTikTokMode() }
-        closeTiktokBtn.setOnClickListener { exitTikTokMode() }
+        tiktokModeBtn.setOnClickListener { collectAndEnterTikTok() }
+        normalModeBtn.setOnClickListener { switchToNormalMode() }
 
         videoPager.orientation = ViewPager2.ORIENTATION_VERTICAL
         videoPager.offscreenPageLimit = 1
@@ -77,17 +85,35 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (videoPager.visibility == View.VISIBLE) {
-                    exitTikTokMode()
-                } else if (homeWebView.canGoBack()) {
-                    homeWebView.goBack()
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                    isEnabled = true
+                when {
+                    // In normal mode with web history -> go back within the page.
+                    browseLayer.visibility == View.VISIBLE && homeWebView.canGoBack() ->
+                        homeWebView.goBack()
+                    // In normal mode at the root -> return to the TikTok feed.
+                    browseLayer.visibility == View.VISIBLE ->
+                        switchToTikTokMode()
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
                 }
             }
         })
+    }
+
+    /** Fires on every home WebView page finish; auto-enters TikTok mode once. */
+    private fun onHomePageLoaded() {
+        if (!autoEnterArmed) return
+        val host = Uri.parse(homeWebView.url).host ?: ""
+        if (SiteConfig.matches(host)) {
+            autoEnterArmed = false
+            homeWebView.evaluateJavascript(SiteConfig.collectLinksJs(host), null)
+        } else {
+            // Unsupported default page: drop the user into normal browsing.
+            autoEnterArmed = false
+            switchToNormalMode()
+        }
     }
 
     private fun navigateFromAddressBar() {
@@ -99,33 +125,45 @@ class MainActivity : AppCompatActivity() {
         homeWebView.loadUrl(url)
     }
 
-    private fun enterTikTokMode() {
-        val hostname = Uri.parse(homeWebView.url).host ?: ""
-        if (!SiteConfig.matches(hostname)) {
+    /** Normal-mode floating button: scrape the current page and enter the feed. */
+    private fun collectAndEnterTikTok() {
+        val host = Uri.parse(homeWebView.url).host ?: ""
+        if (!SiteConfig.matches(host)) {
             Toast.makeText(this, "当前网站暂不支持抖音模式", Toast.LENGTH_SHORT).show()
             return
         }
-        homeWebView.evaluateJavascript(SiteConfig.collectLinksJs(hostname), null)
+        startupText.text = "正在加载视频…"
+        startupText.visibility = View.VISIBLE
+        homeWebView.evaluateJavascript(SiteConfig.collectLinksJs(host), null)
     }
 
     private fun showVideoFeed(items: List<VideoItem>) {
+        startupText.visibility = View.GONE
         if (items.isEmpty()) {
             Toast.makeText(this, "当前页面没有找到可用的视频链接！", Toast.LENGTH_SHORT).show()
+            // Fall back to normal browsing so the user isn't stuck on a blank feed.
+            switchToNormalMode()
             return
         }
         pagerAdapter = VideoPagerAdapter(items)
         videoPager.adapter = pagerAdapter
-        browseLayer.visibility = View.GONE
-        tiktokModeBtn.visibility = View.GONE
-        videoPager.visibility = View.VISIBLE
-        closeTiktokBtn.visibility = View.VISIBLE
+        switchToTikTokMode()
         videoPager.post { pagerAdapter?.onPageSelected(videoPager.currentItem) }
     }
 
-    private fun exitTikTokMode() {
+    private fun switchToTikTokMode() {
+        browseLayer.visibility = View.GONE
+        tiktokModeBtn.visibility = View.GONE
+        videoPager.visibility = View.VISIBLE
+        normalModeBtn.visibility = View.VISIBLE
+        pagerAdapter?.let { videoPager.post { it.onPageSelected(videoPager.currentItem) } }
+    }
+
+    private fun switchToNormalMode() {
         pagerAdapter?.pauseAll()
+        startupText.visibility = View.GONE
         videoPager.visibility = View.GONE
-        closeTiktokBtn.visibility = View.GONE
+        normalModeBtn.visibility = View.GONE
         browseLayer.visibility = View.VISIBLE
         tiktokModeBtn.visibility = View.VISIBLE
     }
