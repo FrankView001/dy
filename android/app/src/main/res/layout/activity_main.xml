@@ -12,56 +12,63 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- Omnibox row -->
+        <!-- Address bar: a single rounded pill with a leading search icon and a
+             trailing refresh, like Chrome/Safari/Via. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@color/surface"
-            android:paddingStart="8dp"
-            android:paddingEnd="6dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
             android:paddingTop="8dp"
             android:paddingBottom="8dp">
 
-            <ImageButton
-                android:id="@+id/refreshBtn"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:scaleType="centerInside"
-                android:padding="7dp"
-                android:src="@drawable/ic_refresh"
-                android:contentDescription="刷新" />
-
-            <EditText
-                android:id="@+id/omnibox"
+            <LinearLayout
                 android:layout_width="0dp"
-                android:layout_height="42dp"
+                android:layout_height="44dp"
                 android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:layout_marginEnd="4dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
                 android:background="@drawable/bg_address_bar"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:singleLine="true"
-                android:imeOptions="actionGo"
-                android:inputType="textUri"
-                android:selectAllOnFocus="true"
-                android:textColor="@color/on_surface"
-                android:textColorHint="@color/on_surface_muted"
-                android:textSize="14sp"
-                android:hint="搜索或输入网址" />
+                android:paddingStart="12dp"
+                android:paddingEnd="4dp">
 
-            <ImageButton
-                android:id="@+id/menuBtn"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:scaleType="centerInside"
-                android:padding="7dp"
-                android:src="@drawable/ic_more_vert"
-                android:contentDescription="菜单" />
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:src="@drawable/ic_search"
+                    android:alpha="0.6"
+                    android:contentDescription="搜索" />
+
+                <EditText
+                    android:id="@+id/omnibox"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="6dp"
+                    android:background="@android:color/transparent"
+                    android:singleLine="true"
+                    android:imeOptions="actionGo"
+                    android:inputType="textNoSuggestions"
+                    android:selectAllOnFocus="true"
+                    android:textColor="@color/on_surface"
+                    android:textColorHint="@color/on_surface_muted"
+                    android:textSize="14sp"
+                    android:hint="搜索或输入网址" />
+
+                <ImageButton
+                    android:id="@+id/refreshBtn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:scaleType="centerInside"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_refresh"
+                    android:contentDescription="刷新" />
+            </LinearLayout>
         </LinearLayout>
 
         <ProgressBar
@@ -184,16 +191,6 @@
                 android:scaleType="centerInside"
                 android:contentDescription="主页" />
 
-            <ImageButton
-                android:id="@+id/newTabBtn"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
-                android:layout_weight="1"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_add"
-                android:scaleType="centerInside"
-                android:contentDescription="新标签页" />
-
             <FrameLayout
                 android:layout_width="0dp"
                 android:layout_height="44dp"
@@ -211,6 +208,16 @@
                     android:textSize="13sp"
                     android:textStyle="bold" />
             </FrameLayout>
+
+            <ImageButton
+                android:id="@+id/menuBtn"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_more_vert"
+                android:scaleType="centerInside"
+                android:contentDescription="菜单" />
         </LinearLayout>
     </LinearLayout>
 

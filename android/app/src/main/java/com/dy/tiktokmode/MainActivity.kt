@@ -117,6 +117,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.refreshBtn).setOnClickListener { tabs.current?.webView?.reload() }
         findViewById<ImageButton>(R.id.menuBtn).setOnClickListener { showMenu() }
         tabCountBtn.setOnClickListener { showTabSwitcher() }
+        tabCountBtn.setOnLongClickListener {
+            openInNewTab(Prefs.HOME_URL, incognito = false); omnibox.requestFocus(); true
+        }
 
         // First tab.
         openInNewTab(prefs.homepageUrl, incognito = false)
@@ -159,16 +162,16 @@ class MainActivity : AppCompatActivity() {
         )
         wv.webViewClient = client
         wv.webChromeClient = BrowserChromeClient(
-            onProgress = { p ->
+            progressCb = { p ->
                 if (tabs.current?.webView === wv) {
                     webProgress.progress = p
                     webProgress.visibility = if (p in 1..99) View.VISIBLE else View.GONE
                 }
             },
-            onTitle = { t -> tabForWebView(wv)?.let { if (t != null) it.title = t } },
-            onShowCustomView = { view, cb -> enterFullscreen(view, cb) },
-            onHideCustomView = { exitFullscreen() },
-            onFileChooser = { cb -> openFileChooser(cb) }
+            titleCb = { t -> tabForWebView(wv)?.let { if (t != null) it.title = t } },
+            showCustomViewCb = { view, cb -> enterFullscreen(view, cb) },
+            hideCustomViewCb = { exitFullscreen() },
+            fileChooserCb = { cb -> openFileChooser(cb) }
         )
         // Link the client to its tab once the tab exists (set right after newTab()).
         wv.tag = client
@@ -326,10 +329,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.homeBtn).setOnClickListener {
             tabs.current?.let { loadUrl(it, Prefs.HOME_URL) }
         }
-        findViewById<ImageButton>(R.id.newTabBtn).setOnClickListener {
-            openInNewTab(Prefs.HOME_URL, incognito = false)
-            omnibox.requestFocus()
-        }
     }
 
     private fun updateTabCount() { tabCountBtn.text = tabs.count().toString() }
@@ -360,89 +359,126 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- Menu ----------------
 
+    /** A single grid tile spec. */
+    private data class Tile(val icon: Int, val label: String, val active: Boolean, val onClick: () -> Unit)
+
     private fun showMenu() {
         val sheet = BottomSheetDialog(this)
         val scroll = androidx.core.widget.NestedScrollView(this)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(10), dp(8), dp(24))
+            setBackgroundResource(R.drawable.bg_sheet)
+            setPadding(dp(6), dp(10), dp(6), dp(20))
         }
+
+        // Drag handle.
+        box.addView(View(this).apply {
+            setBackgroundResource(R.drawable.drag_handle)
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(4)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(8)
+            }
+        })
+
         val url = tabs.current?.currentUrl ?: ""
         val isBookmarked = bookmarks.isBookmarked(url)
 
-        fun row(emoji: String, label: String, action: () -> Unit) {
-            box.addView(menuRow(emoji, label) { sheet.dismiss(); action() })
-        }
+        fun act(block: () -> Unit): () -> Unit = { sheet.dismiss(); block() }
 
         box.addView(sectionTitle("常用"))
-        row("⭐", if (isBookmarked) "取消书签" else "添加书签") {
-            if (isBookmarked) bookmarks.remove(url)
-            else bookmarks.add(tabs.current?.title ?: url, url)
-            Toast.makeText(this, if (isBookmarked) "已移除书签" else "已添加书签", Toast.LENGTH_SHORT).show()
-        }
-        row("🔖", "书签") { showBookmarks() }
-        row("🕘", "历史记录") { showHistory() }
-        row("🔍", "页内查找") { openFindBar() }
-        row("🎵", "抖音模式") { enterTikTok() }
-        row("🥷", "新建隐身标签页") { openInNewTab(Prefs.HOME_URL, incognito = true); omnibox.requestFocus() }
+        box.addView(tileGrid(listOf(
+            Tile(if (isBookmarked) R.drawable.ic_bookmark_filled else R.drawable.ic_bookmark,
+                if (isBookmarked) "已收藏" else "添加书签", isBookmarked, act {
+                    if (isBookmarked) bookmarks.remove(url)
+                    else bookmarks.add(tabs.current?.title ?: url, url)
+                    Toast.makeText(this, if (isBookmarked) "已移除书签" else "已添加书签", Toast.LENGTH_SHORT).show()
+                }),
+            Tile(R.drawable.ic_bookmark, "书签", false, act { showBookmarks() }),
+            Tile(R.drawable.ic_history, "历史", false, act { showHistory() }),
+            Tile(R.drawable.ic_search, "页内查找", false, act { openFindBar() }),
+            Tile(R.drawable.ic_music_note, "抖音模式", false, act { enterTikTok() }),
+            Tile(R.drawable.ic_incognito, "隐身标签", false, act { openInNewTab(Prefs.HOME_URL, true); omnibox.requestFocus() }),
+            Tile(R.drawable.ic_link, "复制链接", false, act { copyUrl() }),
+            Tile(R.drawable.ic_share, "其他应用", false, act { openExternally() })
+        )))
 
-        box.addView(sectionTitle("效率工具"))
-        row("📥", "资源嗅探") { showSniffer() }
-        row(if (prefs.adBlockEnabled) "🛡️" else "🚫", "广告拦截：" + onOff(prefs.adBlockEnabled)) {
-            prefs.adBlockEnabled = !prefs.adBlockEnabled; reloadCurrent()
-        }
-        row(if (prefs.nightMode) "🌙" else "☀️", "夜间模式：" + onOff(prefs.nightMode)) {
-            prefs.nightMode = !prefs.nightMode; reloadCurrent()
-        }
-        row("🖥️", "电脑模式：" + onOff(prefs.desktopMode)) {
-            prefs.desktopMode = !prefs.desktopMode
-            tabs.current?.let { applyUaAndImages(it.webView.settings); it.webView.reload() }
-        }
-        row("🖼️", "无图模式：" + onOff(prefs.noImageMode)) {
-            prefs.noImageMode = !prefs.noImageMode
-            tabs.current?.let { applyUaAndImages(it.webView.settings); it.webView.reload() }
-        }
-        row("📸", "整页截图") { captureScreenshot() }
-        row("💾", "离线保存") { saveOffline() }
-        row("📄", "查看源码") { viewSource() }
-        row("🔗", "复制链接") { copyUrl() }
-        row("↗️", "用其他应用打开") { openExternally() }
+        box.addView(sectionTitle("开关"))
+        box.addView(tileGrid(listOf(
+            Tile(R.drawable.ic_shield, "广告拦截", prefs.adBlockEnabled, act {
+                prefs.adBlockEnabled = !prefs.adBlockEnabled; reloadCurrent()
+            }),
+            Tile(R.drawable.ic_night, "夜间模式", prefs.nightMode, act {
+                prefs.nightMode = !prefs.nightMode; reloadCurrent()
+            }),
+            Tile(R.drawable.ic_desktop, "电脑模式", prefs.desktopMode, act {
+                prefs.desktopMode = !prefs.desktopMode
+                tabs.current?.let { applyUaAndImages(it.webView.settings); it.webView.reload() }
+            }),
+            Tile(R.drawable.ic_image, "无图模式", prefs.noImageMode, act {
+                prefs.noImageMode = !prefs.noImageMode
+                tabs.current?.let { applyUaAndImages(it.webView.settings); it.webView.reload() }
+            })
+        )))
 
-        box.addView(sectionTitle("隐私 / 设置"))
-        row("🧹", "清除数据") { confirmClearData() }
-        row("⚙️", "设置") { startActivity(Intent(this, SettingsActivity::class.java)) }
+        box.addView(sectionTitle("工具"))
+        box.addView(tileGrid(listOf(
+            Tile(R.drawable.ic_stream, "资源嗅探", false, act { showSniffer() }),
+            Tile(R.drawable.ic_camera, "整页截图", false, act { captureScreenshot() }),
+            Tile(R.drawable.ic_download, "离线保存", false, act { saveOffline() }),
+            Tile(R.drawable.ic_code, "查看源码", false, act { viewSource() }),
+            Tile(R.drawable.ic_delete, "清除数据", false, act { confirmClearData() }),
+            Tile(R.drawable.ic_settings, "设置", false, act { startActivity(Intent(this, SettingsActivity::class.java)) })
+        )))
 
         scroll.addView(box)
         sheet.setContentView(scroll)
         sheet.show()
     }
 
-    private fun onOff(b: Boolean) = if (b) "开" else "关"
-
     private fun sectionTitle(text: String): TextView = TextView(this).apply {
         this.text = text
-        setTextColor(0xFF888890.toInt())
+        setTextColor(0xFF8A8A92.toInt())
         textSize = 12f
-        setPadding(dp(14), dp(12), dp(14), dp(4))
+        setPadding(dp(14), dp(14), dp(14), dp(6))
     }
 
-    private fun menuRow(emoji: String, label: String, onClick: () -> Unit): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(13), dp(14), dp(13))
-            isClickable = true
-            setBackgroundResource(outValueSelectableBackground())
-            setOnClickListener { onClick() }
+    /** Builds a 4-column grid of icon tiles. */
+    private fun tileGrid(tiles: List<Tile>): android.widget.GridLayout {
+        val cols = 4
+        val grid = android.widget.GridLayout(this).apply {
+            columnCount = cols
         }
-        row.addView(TextView(this).apply { text = emoji; textSize = 18f })
-        row.addView(TextView(this).apply {
-            text = label
-            setTextColor(0xFFFFFFFF.toInt())
-            textSize = 15f
-            setPadding(dp(16), 0, 0, 0)
-        })
-        return row
+        tiles.forEach { t ->
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(4), dp(12), dp(4), dp(12))
+                setBackgroundResource(outValueSelectableBackground())
+                setOnClickListener { t.onClick() }
+                layoutParams = android.widget.GridLayout.LayoutParams().apply {
+                    width = 0
+                    columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                }
+            }
+            val iconWrap = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(46), dp(46))
+                if (t.active) setBackgroundResource(R.drawable.bg_tile_active)
+            }
+            iconWrap.addView(ImageView(this).apply {
+                setImageResource(t.icon)
+                if (t.active) setColorFilter(0xFFFE2C55.toInt())
+                layoutParams = FrameLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER }
+            })
+            cell.addView(iconWrap)
+            cell.addView(TextView(this).apply {
+                text = t.label
+                setTextColor(if (t.active) 0xFFFE2C55.toInt() else 0xFFE8E8EC.toInt())
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(6), 0, 0)
+            })
+            grid.addView(cell)
+        }
+        return grid
     }
 
     private fun outValueSelectableBackground(): Int {
