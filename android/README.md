@@ -1,6 +1,19 @@
-# 抖音模式 — Android WebView App
+# DY 浏览器 — Android WebView App
 
-把 `tiktok-mode.js` 的逻辑搬到了一个原生 Android WebView App 里，去掉了油猴脚本里 iframe + postMessage 那套迂回方案：每条视频现在是一个**独立的顶层 WebView 导航**，而不是嵌入 iframe，所以天然不受 `X-Frame-Options` / `frame-ancestors` 限制。
+一个基于 WebView 的多标签浏览器（参考 Via / Chrome / Safari 风格），内置「抖音模式」把支持的视频站变成上下滑动 Feed。
+
+## 浏览器功能
+
+**基础浏览**：多标签页、历史记录、书签、下载（DownloadManager）、页内查找、地址栏搜索
+**定制**：自定义 UA、主页定制（Logo 文字 / 背景图 / 搜索框）、搜索引擎切换与自定义、自定义 CSS（全站注入）、用户脚本（油猴风格全站注入 JS）
+**隐私安全**：WebView 沙盒、防追踪（DNT + 拦截分析域名）、隐身标签页、清除数据（Cookie/缓存/存储/历史）
+**效率工具**：资源嗅探（视频/音频）、广告拦截、夜间模式、无图模式、电脑模式、整页截图、离线保存（.mht）、查看源码、以图搜图 / 看图模式（长按图片）、抖音模式
+
+> 进行中 / 后续：标签页缩略图网格、18 种手势、按域名的站点专属设置、广告可视化标记、油猴脚本多脚本管理。当前用户脚本/CSS 为单一全局脚本。
+
+## 抖音模式
+
+每条视频是一个**独立顶层 WebView 导航**（非 iframe），不受 `X-Frame-Options` / `frame-ancestors` 限制。
 
 ## 已实现
 

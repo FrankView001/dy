@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="18dp">
+
+        <TextView style="@style/SettingLabel" android:text="搜索引擎" />
+        <Spinner
+            android:id="@+id/searchEngineSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp" />
+        <EditText
+            android:id="@+id/customSearchUrl"
+            style="@style/SettingInput"
+            android:hint="自定义搜索 URL（含 %s）" />
+
+        <TextView style="@style/SettingLabel" android:text="自定义 User-Agent（留空使用默认）" />
+        <EditText android:id="@+id/customUa" style="@style/SettingInput" android:hint="User-Agent" />
+
+        <TextView style="@style/SettingLabel" android:text="主页定制" />
+        <EditText android:id="@+id/homeTitle" style="@style/SettingInput" android:hint="主页标题 / Logo 文字" />
+        <EditText android:id="@+id/homeUrl" style="@style/SettingInput" android:hint="主页地址（默认 about:home）" />
+        <EditText android:id="@+id/homeBg" style="@style/SettingInput" android:hint="主页背景图 URL（可选）" />
+
+        <TextView style="@style/SettingLabel" android:text="自定义 CSS（注入到每个页面）" />
+        <EditText
+            android:id="@+id/customCss"
+            style="@style/SettingInput"
+            android:minLines="3"
+            android:gravity="top"
+            android:inputType="textMultiLine"
+            android:hint="例如 body{font-size:18px!important;}" />
+
+        <TextView style="@style/SettingLabel" android:text="用户脚本（油猴风格，全站注入 JS）" />
+        <EditText
+            android:id="@+id/userScript"
+            style="@style/SettingInput"
+            android:minLines="4"
+            android:gravity="top"
+            android:inputType="textMultiLine"
+            android:hint="例如 console.log('hi');" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="12dp">
+            <TextView style="@style/SettingLabel"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="发送 Do-Not-Track 头" />
+            <Switch android:id="@+id/dntSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/saveBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:text="保存"
+            android:backgroundTint="@color/accent"
+            android:textColor="@color/on_surface" />
+    </LinearLayout>
+</ScrollView>

@@ -5,13 +5,230 @@
     android:layout_height="match_parent"
     android:background="@color/background">
 
-    <!-- ===== TikTok feed (default) ===== -->
+    <!-- ============ Browser shell ============ -->
+    <LinearLayout
+        android:id="@+id/browserRoot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Omnibox row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@color/surface"
+            android:paddingStart="8dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <ImageButton
+                android:id="@+id/refreshBtn"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:scaleType="centerInside"
+                android:padding="7dp"
+                android:src="@drawable/ic_refresh"
+                android:contentDescription="刷新" />
+
+            <EditText
+                android:id="@+id/omnibox"
+                android:layout_width="0dp"
+                android:layout_height="42dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_address_bar"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:singleLine="true"
+                android:imeOptions="actionGo"
+                android:inputType="textUri"
+                android:selectAllOnFocus="true"
+                android:textColor="@color/on_surface"
+                android:textColorHint="@color/on_surface_muted"
+                android:textSize="14sp"
+                android:hint="搜索或输入网址" />
+
+            <ImageButton
+                android:id="@+id/menuBtn"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:scaleType="centerInside"
+                android:padding="7dp"
+                android:src="@drawable/ic_more_vert"
+                android:contentDescription="菜单" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/webProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:max="100"
+            android:progress="0"
+            android:progressTint="@color/accent"
+            android:visibility="gone" />
+
+        <!-- Active tab's WebView is attached here -->
+        <FrameLayout
+            android:id="@+id/webContainer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- Find-in-page bar -->
+        <LinearLayout
+            android:id="@+id/findBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@color/surface"
+            android:padding="6dp"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/findInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="页内查找"
+                android:singleLine="true"
+                android:textColor="@color/on_surface"
+                android:textColorHint="@color/on_surface_muted"
+                android:background="@android:color/transparent"
+                android:paddingStart="12dp" />
+
+            <TextView
+                android:id="@+id/findCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:textColor="@color/on_surface_muted"
+                android:textSize="13sp" />
+
+            <ImageButton
+                android:id="@+id/findPrev"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:rotation="180"
+                android:src="@drawable/ic_swipe_up"
+                android:scaleType="centerInside"
+                android:padding="9dp"
+                android:contentDescription="上一个" />
+
+            <ImageButton
+                android:id="@+id/findNext"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_swipe_up"
+                android:scaleType="centerInside"
+                android:padding="9dp"
+                android:contentDescription="下一个" />
+
+            <ImageButton
+                android:id="@+id/findClose"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_close"
+                android:scaleType="centerInside"
+                android:padding="9dp"
+                android:contentDescription="关闭" />
+        </LinearLayout>
+
+        <!-- Bottom navigation bar -->
+        <LinearLayout
+            android:id="@+id/bottomBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/surface"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+
+            <ImageButton
+                android:id="@+id/backBtn"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_arrow_back"
+                android:scaleType="centerInside"
+                android:contentDescription="后退" />
+
+            <ImageButton
+                android:id="@+id/forwardBtn"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_forward"
+                android:scaleType="centerInside"
+                android:contentDescription="前进" />
+
+            <ImageButton
+                android:id="@+id/homeBtn"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_home"
+                android:scaleType="centerInside"
+                android:contentDescription="主页" />
+
+            <ImageButton
+                android:id="@+id/newTabBtn"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_add"
+                android:scaleType="centerInside"
+                android:contentDescription="新标签页" />
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1">
+
+                <TextView
+                    android:id="@+id/tabCountBtn"
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_tab_count"
+                    android:gravity="center"
+                    android:text="1"
+                    android:textColor="@color/on_surface"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- HTML5 fullscreen video target -->
+    <FrameLayout
+        android:id="@+id/fullscreenContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:visibility="gone" />
+
+    <!-- ============ TikTok feed overlay ============ -->
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/videoPager"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 
-    <!-- Top overlay bar in feed mode -->
     <LinearLayout
         android:id="@+id/feedTopBar"
         android:layout_width="match_parent"
@@ -22,7 +239,8 @@
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
         android:paddingTop="12dp"
-        android:paddingBottom="8dp">
+        android:paddingBottom="8dp"
+        android:visibility="gone">
 
         <TextView
             android:id="@+id/normalModeBtn"
@@ -35,12 +253,11 @@
             android:paddingEnd="16dp"
             android:paddingTop="8dp"
             android:paddingBottom="8dp"
-            android:text="普通模式"
+            android:text="退出"
             android:textColor="@color/on_surface"
             android:textSize="13sp" />
 
         <TextView
-            android:id="@+id/feedBrand"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -62,18 +279,16 @@
             android:contentDescription="刷新" />
     </LinearLayout>
 
-    <!-- Centered loading spinner shown while collecting / first load -->
     <LinearLayout
         android:id="@+id/startupBox"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:orientation="vertical"
-        android:gravity="center">
+        android:gravity="center"
+        android:visibility="gone">
 
         <ProgressBar
-            android:id="@+id/startupSpinner"
-            style="?android:attr/progressBarStyle"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:indeterminateTint="@color/accent" />
@@ -87,104 +302,5 @@
             android:textColor="@color/on_surface_muted"
             android:textSize="14sp" />
     </LinearLayout>
-
-    <!-- ===== Normal browser mode (hidden by default) ===== -->
-    <LinearLayout
-        android:id="@+id/browseLayer"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:background="@color/background"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@color/surface"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
-
-            <ImageButton
-                android:id="@+id/webBackBtn"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:scaleType="centerInside"
-                android:padding="8dp"
-                android:src="@drawable/ic_arrow_back"
-                android:contentDescription="后退" />
-
-            <EditText
-                android:id="@+id/addressBar"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:layout_marginEnd="4dp"
-                android:background="@drawable/bg_address_bar"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:singleLine="true"
-                android:imeOptions="actionGo"
-                android:inputType="textUri"
-                android:textColor="@color/on_surface"
-                android:textColorHint="@color/on_surface_muted"
-                android:textSize="14sp"
-                android:hint="搜索或输入网址" />
-
-            <ImageButton
-                android:id="@+id/webRefreshBtn"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:scaleType="centerInside"
-                android:padding="8dp"
-                android:src="@drawable/ic_refresh"
-                android:contentDescription="刷新" />
-
-            <ImageButton
-                android:id="@+id/menuBtn"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:scaleType="centerInside"
-                android:padding="8dp"
-                android:src="@drawable/ic_more_vert"
-                android:contentDescription="菜单" />
-        </LinearLayout>
-
-        <ProgressBar
-            android:id="@+id/webProgress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="3dp"
-            android:max="100"
-            android:progress="0"
-            android:progressTint="@color/accent"
-            android:visibility="gone" />
-
-        <WebView
-            android:id="@+id/homeWebView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-    </LinearLayout>
-
-    <!-- Enter-feed FAB, shown only in normal mode -->
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/tiktokModeBtn"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="20dp"
-        android:text="抖音模式"
-        android:textColor="@color/on_surface"
-        app:icon="@drawable/ic_music_note"
-        app:iconTint="@color/on_surface"
-        app:backgroundTint="@color/accent"
-        android:visibility="gone" />
 
 </FrameLayout>
