@@ -71,7 +71,10 @@ class BrowserWebViewClient(
 
     private fun injectCss(view: WebView) {
         val sb = StringBuilder()
+        // Algorithmic dark applied via WebSettingsCompat from MainActivity; this
+        // CSS layer is a fallback for sites whose author themes ignore it.
         if (prefs.nightMode) sb.append(NIGHT_CSS)
+        if (prefs.noImageMode) sb.append(NO_IMAGE_CSS)
         if (prefs.customCss.isNotBlank()) sb.append(prefs.customCss)
         // Per-host user-marked ad selectors.
         val host = try { android.net.Uri.parse(view.url ?: "").host } catch (_: Exception) { null }
@@ -101,5 +104,8 @@ class BrowserWebViewClient(
         private const val NIGHT_CSS =
             "html{filter:invert(1) hue-rotate(180deg)!important;background:#0d0d0d!important;}" +
             "img,video,picture,canvas,iframe,svg,[style*=\"background-image\"]{filter:invert(1) hue-rotate(180deg)!important;}"
+
+        private const val NO_IMAGE_CSS =
+            "img,picture,video[poster],[style*=\"background-image\"]{display:none!important;}"
     }
 }

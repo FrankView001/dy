@@ -196,6 +196,20 @@ class MainActivity : AppCompatActivity() {
         }
         s.loadsImagesAutomatically = !prefs.noImageMode
         s.blockNetworkImage = prefs.noImageMode
+        // Desktop mode: also make the WebView render at the wide viewport so
+        // the page lays out at desktop width, not zoomed-to-mobile.
+        s.useWideViewPort = true
+        s.loadWithOverviewMode = true
+        s.setSupportZoom(true)
+        s.builtInZoomControls = true
+        s.displayZoomControls = false
+        // Algorithmic darkening (Android's official "force dark" since WebView 79).
+        try {
+            if (androidx.webkit.WebViewFeature.isFeatureSupported(
+                    androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
+                androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(s, prefs.nightMode)
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun tabForWebView(wv: WebView): BrowserTab? = tabs.tabs.firstOrNull { it.webView === wv }
@@ -403,8 +417,11 @@ class MainActivity : AppCompatActivity() {
                 prefs.adBlockEnabled = !prefs.adBlockEnabled; reloadCurrent()
             }),
             Tile(R.drawable.ic_target, "标记广告", false, act { enterAdMarker() }),
+            Tile(R.drawable.ic_list, "已标记广告", false, act { showMarkedAds() }),
             Tile(R.drawable.ic_night, "夜间模式", prefs.nightMode, act {
-                prefs.nightMode = !prefs.nightMode; reloadCurrent()
+                prefs.nightMode = !prefs.nightMode
+                tabs.tabs.forEach { applyUaAndImages(it.webView.settings) }
+                tabs.current?.webView?.reload()
             }),
             Tile(R.drawable.ic_desktop, "电脑模式", prefs.desktopMode, act {
                 prefs.desktopMode = !prefs.desktopMode
@@ -540,7 +557,178 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- Lists: bookmarks / history / tabs / sniffer ----------------
 
-    private fun showBookmarks() = showSiteList("书签", bookmarks.all(), onClear = { bookmarks.clear() })
+    private fun showBookmarks() = showBookmarkFolder("", "书签")
+
+    /** Recursive folder view with long-press menu. parentId="" = root. */
+    private fun showBookmarkFolder(parentId: String, title: String) {
+        val sheet = BottomSheetDialog(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(12), dp(8), dp(24))
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(TextView(this).apply {
+            this.text = title; setTextColor(0xFFFFFFFF.toInt()); textSize = 17f
+            setPadding(dp(12), 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        header.addView(Button(this).apply {
+            text = "新建文件夹"
+            setOnClickListener {
+                val input = EditText(this@MainActivity).apply { hint = "文件夹名" }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("新建文件夹").setView(input)
+                    .setPositiveButton("创建") { _, _ ->
+                        val name = input.text.toString().trim()
+                        if (name.isNotEmpty()) {
+                            bookmarks.addFolder(name, parentId)
+                            sheet.dismiss(); showBookmarkFolder(parentId, title)
+                        }
+                    }.setNegativeButton("取消", null).show()
+            }
+        })
+        box.addView(header)
+
+        val items = bookmarks.children(parentId)
+        if (items.isEmpty()) {
+            box.addView(TextView(this).apply {
+                text = "（空，从书签按钮添加或长按重命名/移动）"
+                setTextColor(0xFF888890.toInt()); setPadding(dp(14), dp(20), 0, 0)
+            })
+        }
+
+        val scroll = androidx.core.widget.NestedScrollView(this)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        items.forEach { e ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setBackgroundResource(outValueSelectableBackground())
+                setOnClickListener {
+                    if (e.folder) {
+                        sheet.dismiss(); showBookmarkFolder(e.id, e.title)
+                    } else {
+                        sheet.dismiss(); tabs.current?.let { loadUrl(it, e.url) }
+                    }
+                }
+                setOnLongClickListener {
+                    showBookmarkActions(e) { sheet.dismiss(); showBookmarkFolder(parentId, title) }
+                    true
+                }
+            }
+            row.addView(ImageView(this).apply {
+                setImageResource(if (e.folder) R.drawable.ic_folder else R.drawable.ic_bookmark)
+                setColorFilter(if (e.folder) 0xFFFFC107.toInt() else 0xFFE8E8EC.toInt())
+                layoutParams = LinearLayout.LayoutParams(dp(22), dp(22)).apply {
+                    rightMargin = dp(12)
+                }
+            })
+            val txt = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            txt.addView(TextView(this).apply {
+                text = e.title.ifBlank { e.url }
+                setTextColor(0xFFFFFFFF.toInt()); textSize = 15f; maxLines = 1
+            })
+            if (!e.folder) {
+                txt.addView(TextView(this).apply {
+                    text = e.url; setTextColor(0xFF8A8A92.toInt()); textSize = 12f; maxLines = 1
+                })
+            }
+            row.addView(txt)
+            list.addView(row)
+        }
+        scroll.addView(list); box.addView(scroll)
+        sheet.setContentView(box); sheet.show()
+    }
+
+    /** Long-press menu for a bookmark/folder. */
+    private fun showBookmarkActions(entry: BookmarkEntry, onChanged: () -> Unit) {
+        val opts = arrayOf("重命名", "移动到…", "删除")
+        AlertDialog.Builder(this)
+            .setTitle(entry.title)
+            .setItems(opts) { _, which ->
+                when (which) {
+                    0 -> {
+                        val input = EditText(this).apply { setText(entry.title) }
+                        AlertDialog.Builder(this).setTitle("重命名").setView(input)
+                            .setPositiveButton("保存") { _, _ ->
+                                val n = input.text.toString().trim()
+                                if (n.isNotEmpty()) { bookmarks.rename(entry.id, n); onChanged() }
+                            }.setNegativeButton("取消", null).show()
+                    }
+                    1 -> {
+                        val folders = listOf(BookmarkEntry("", "根目录", "", "", true)) +
+                                bookmarks.folders().filter { it.id != entry.id }
+                        val labels = folders.map { it.title }.toTypedArray()
+                        AlertDialog.Builder(this).setTitle("移动到")
+                            .setItems(labels) { _, idx ->
+                                bookmarks.move(entry.id, folders[idx].id); onChanged()
+                            }.show()
+                    }
+                    2 -> {
+                        AlertDialog.Builder(this).setTitle("删除")
+                            .setMessage("删除「${entry.title}」？")
+                            .setPositiveButton("删除") { _, _ -> bookmarks.removeById(entry.id); onChanged() }
+                            .setNegativeButton("取消", null).show()
+                    }
+                }
+            }.show()
+    }
+
+    private fun showMarkedAds() {
+        val host = try {
+            android.net.Uri.parse(tabs.current?.currentUrl ?: "").host
+        } catch (_: Exception) { null }
+        val marks = AdMarkStore.selectorsFor(host)
+        val sheet = BottomSheetDialog(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(8), dp(12), dp(8), dp(24))
+        }
+        box.addView(sectionTitle("当前网站标记的广告 (${marks.size})  ${host ?: ""}"))
+        if (marks.isEmpty()) {
+            box.addView(TextView(this).apply {
+                text = "本站还没有手动标记的广告，从菜单点击「标记广告」即可标记"
+                setTextColor(0xFF888890.toInt()); setPadding(dp(14), dp(20), dp(14), 0)
+            })
+        }
+        val scroll = androidx.core.widget.NestedScrollView(this)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        marks.forEach { sel ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setBackgroundResource(outValueSelectableBackground())
+            }
+            row.addView(TextView(this).apply {
+                text = sel; setTextColor(0xFFE8E8EC.toInt()); textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(Button(this).apply {
+                text = "撤销"; setOnClickListener {
+                    // No per-selector remove API — rebuild without this entry.
+                    val others = marks.filter { it != sel }
+                    AdMarkStore.clear(host)
+                    others.forEach { AdMarkStore.add(host, it) }
+                    sheet.dismiss(); showMarkedAds(); reloadCurrent()
+                }
+            })
+            list.addView(row)
+        }
+        scroll.addView(list); box.addView(scroll)
+        if (marks.isNotEmpty()) {
+            box.addView(Button(this).apply {
+                text = "全部清除"; setOnClickListener {
+                    AdMarkStore.clear(host); sheet.dismiss(); reloadCurrent()
+                }
+            })
+        }
+        sheet.setContentView(box); sheet.show()
+    }
 
     private fun showHistory() = showSiteList("历史记录", history.all(), onClear = { history.clear() })
 
@@ -684,10 +872,39 @@ class MainActivity : AppCompatActivity() {
             val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bmp)
             wv.draw(canvas)
-            val dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: filesDir
-            val file = File(dir, "shot_${System.currentTimeMillis()}.png")
-            FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 90, it) }
-            Toast.makeText(this, "已保存截图：${file.absolutePath}", Toast.LENGTH_LONG).show()
+
+            val filename = "dy_shot_${System.currentTimeMillis()}.png"
+            // API 29+ uses MediaStore so the screenshot shows up in 相册. On older
+            // devices fall back to a public Pictures path.
+            val savedTo: String = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val resolver = contentResolver
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
+                    put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,
+                        Environment.DIRECTORY_PICTURES + "/DY浏览器")
+                }
+                val uri = resolver.insert(
+                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
+                ) ?: throw java.io.IOException("MediaStore insert failed")
+                resolver.openOutputStream(uri).use { out ->
+                    out ?: throw java.io.IOException("open stream failed")
+                    bmp.compress(Bitmap.CompressFormat.PNG, 90, out)
+                }
+                "相册/Pictures/DY浏览器/$filename"
+            } else {
+                val dir = File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_PICTURES), "DY浏览器")
+                if (!dir.exists()) dir.mkdirs()
+                val file = File(dir, filename)
+                FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 90, it) }
+                // Tell the gallery to index it.
+                sendBroadcast(
+                    Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(file))
+                )
+                file.absolutePath
+            }
+            Toast.makeText(this, "已保存截图：$savedTo", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(this, "截图失败：${e.message}", Toast.LENGTH_SHORT).show()
         }
@@ -911,11 +1128,25 @@ class MainActivity : AppCompatActivity() {
          * computes a compact CSS selector, posts it to the Android bridge, and
          * hides the element. Tap blank area (html/body) to exit.
          */
+        /**
+         * Element-picker for ad marking. To stop ads from hijacking the tap
+         * we lay a full-viewport translucent layer above the page, intercept
+         * the tap there (so the ad's own onclick can't fire), then look up
+         * the element underneath with document.elementFromPoint.
+         */
         const val AD_MARK_JS = """(function(){
           if(window.__dyAdMark){window.__dyAdMark.stop();return;}
-          var ov=document.createElement('div');
-          ov.style.cssText='position:fixed;pointer-events:none;border:2px solid #FE2C55;background:rgba(254,44,85,0.18);z-index:2147483647;transition:all .04s;';
-          document.body.appendChild(ov);
+          var box=document.createElement('div');
+          box.style.cssText='position:fixed;pointer-events:none;border:2px solid #FE2C55;background:rgba(254,44,85,0.20);z-index:2147483646;transition:all .04s;box-sizing:border-box;';
+          var shield=document.createElement('div');
+          shield.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;cursor:crosshair;background:rgba(0,0,0,0.001);';
+          var hint=document.createElement('div');
+          hint.style.cssText='position:fixed;left:50%;top:14px;transform:translateX(-50%);background:rgba(254,44,85,0.95);color:#fff;padding:8px 16px;border-radius:18px;font-size:13px;z-index:2147483647;font-family:-apple-system,Roboto,sans-serif;box-shadow:0 4px 10px rgba(0,0,0,0.3);';
+          hint.textContent='点击要屏蔽的元素 (再次点击空白处退出)';
+          document.documentElement.appendChild(box);
+          document.documentElement.appendChild(shield);
+          document.documentElement.appendChild(hint);
+          var lastEl=null;
           function sel(el){
             if(!el||el===document.body||el===document.documentElement) return '';
             var t=el.tagName.toLowerCase();
@@ -930,32 +1161,38 @@ class MainActivity : AppCompatActivity() {
             var ps=sel(p);
             return ps?ps+'>'+t:t;
           }
-          function mv(e){
-            var el=e.target;
-            if(!el||el===ov) return;
-            var r=el.getBoundingClientRect();
-            ov.style.left=r.left+'px';ov.style.top=r.top+'px';
-            ov.style.width=r.width+'px';ov.style.height=r.height+'px';
+          function at(x,y){
+            shield.style.pointerEvents='none';
+            var el=document.elementFromPoint(x,y);
+            shield.style.pointerEvents='auto';
+            return el;
           }
-          function cl(e){
-            e.preventDefault();e.stopPropagation();
-            var el=e.target;
+          function paint(el){
+            if(!el||el===box||el===shield||el===hint){return;}
+            lastEl=el;
+            var r=el.getBoundingClientRect();
+            box.style.left=r.left+'px';box.style.top=r.top+'px';
+            box.style.width=r.width+'px';box.style.height=r.height+'px';
+          }
+          function mv(e){var t=e.touches?e.touches[0]:e; paint(at(t.clientX,t.clientY));}
+          function tap(e){
+            e.preventDefault(); e.stopPropagation();
+            var t=e.changedTouches?e.changedTouches[0]:e;
+            var el=at(t.clientX,t.clientY);
             if(!el||el===document.body||el===document.documentElement){stop();return;}
             var s=sel(el);
             if(!s){stop();return;}
             try{Android.onMarkAd(location.hostname, s);}catch(_){}
             try{document.querySelectorAll(s).forEach(function(n){n.style.setProperty('display','none','important');});}catch(_){}
           }
+          shield.addEventListener('mousemove',mv,true);
+          shield.addEventListener('touchmove',mv,true);
+          shield.addEventListener('click',tap,true);
+          shield.addEventListener('touchend',tap,true);
           function stop(){
-            document.removeEventListener('mousemove',mv,true);
-            document.removeEventListener('click',cl,true);
-            document.removeEventListener('touchstart',mv,true);
-            if(ov.parentNode)ov.parentNode.removeChild(ov);
+            [box,shield,hint].forEach(function(n){if(n.parentNode)n.parentNode.removeChild(n);});
             window.__dyAdMark=null;
           }
-          document.addEventListener('mousemove',mv,true);
-          document.addEventListener('touchstart',mv,true);
-          document.addEventListener('click',cl,true);
           window.__dyAdMark={stop:stop};
         })();"""
     }
