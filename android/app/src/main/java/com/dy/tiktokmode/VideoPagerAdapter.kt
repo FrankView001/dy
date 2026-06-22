@@ -4,6 +4,10 @@ import android.annotation.SuppressLint
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.recyclerview.widget.RecyclerView
@@ -12,13 +16,15 @@ class VideoPagerAdapter(private val items: List<VideoItem>) :
     RecyclerView.Adapter<VideoPagerAdapter.ViewHolder>() {
 
     private val liveHolders = mutableSetOf<ViewHolder>()
-    private var currentPosition = -1
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val webView: WebView = view.findViewById(R.id.itemWebView)
-        val loadingText: View = view.findViewById(R.id.loadingText)
-        val titleText: android.widget.TextView = view.findViewById(R.id.titleText)
+        val loadingSpinner: ProgressBar = view.findViewById(R.id.loadingSpinner)
+        val titleText: TextView = view.findViewById(R.id.titleText)
         val tapLayer: View = view.findViewById(R.id.tapLayer)
+        val playIcon: ImageView = view.findViewById(R.id.playIcon)
+        val muteBtn: ImageButton = view.findViewById(R.id.muteBtn)
+        val reloadBtn: ImageButton = view.findViewById(R.id.reloadBtn)
         var isMuted = true
         var isPaused = false
         var boundUrl: String? = null
@@ -35,24 +41,39 @@ class VideoPagerAdapter(private val items: List<VideoItem>) :
             mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
+            userAgentString = USER_AGENT
+            useWideViewPort = true
+            loadWithOverviewMode = true
         }
-        holder.webView.webViewClient = HeaderStrippingWebViewClient { url ->
+        holder.webView.webViewClient = HeaderStrippingWebViewClient {
             holder.webView.evaluateJavascript(SiteConfig.STYLE_AND_AUTOPLAY_JS, null)
-            holder.loadingText.post { holder.loadingText.visibility = View.GONE }
+            holder.loadingSpinner.post { holder.loadingSpinner.visibility = View.GONE }
         }
 
         holder.tapLayer.setOnClickListener {
             if (holder.isMuted) {
                 holder.isMuted = false
                 holder.isPaused = false
+                holder.muteBtn.setImageResource(R.drawable.ic_volume_up)
+                holder.playIcon.visibility = View.GONE
                 holder.webView.evaluateJavascript(SiteConfig.UNMUTE_PLAY_JS, null)
             } else {
                 holder.isPaused = !holder.isPaused
-                holder.webView.evaluateJavascript(
-                    if (holder.isPaused) SiteConfig.PAUSE_JS else SiteConfig.PLAY_JS,
-                    null
-                )
+                if (holder.isPaused) {
+                    holder.webView.evaluateJavascript(SiteConfig.PAUSE_JS, null)
+                    holder.playIcon.visibility = View.VISIBLE
+                } else {
+                    holder.webView.evaluateJavascript(SiteConfig.PLAY_JS, null)
+                    holder.playIcon.visibility = View.GONE
+                }
             }
+        }
+
+        holder.muteBtn.setOnClickListener { holder.tapLayer.performClick() }
+
+        holder.reloadBtn.setOnClickListener {
+            holder.loadingSpinner.visibility = View.VISIBLE
+            holder.webView.reload()
         }
 
         return holder
@@ -60,10 +81,12 @@ class VideoPagerAdapter(private val items: List<VideoItem>) :
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
-        holder.titleText.text = "${item.title}\n(轻触屏幕开启声音/暂停)"
-        holder.loadingText.visibility = View.VISIBLE
+        holder.titleText.text = item.title
+        holder.loadingSpinner.visibility = View.VISIBLE
+        holder.playIcon.visibility = View.GONE
         holder.isMuted = true
         holder.isPaused = false
+        holder.muteBtn.setImageResource(R.drawable.ic_volume_off)
         if (holder.boundUrl != item.detailUrl) {
             holder.boundUrl = item.detailUrl
             holder.webView.loadUrl(item.detailUrl)
@@ -78,21 +101,26 @@ class VideoPagerAdapter(private val items: List<VideoItem>) :
 
     override fun getItemCount(): Int = items.size
 
-    /** Called by the host when the swiped-to page changes: mute-pause everything else, autoplay current. */
+    /** Mute-pause everything but the swiped-to page, which autoplays muted. */
     fun onPageSelected(position: Int) {
-        currentPosition = position
         liveHolders.forEach { holder ->
-            val isCurrent = holder.bindingAdapterPosition == position
-            if (isCurrent) {
-                holder.webView.evaluateJavascript(SiteConfig.MUTE_PLAY_JS, null)
+            if (holder.bindingAdapterPosition == position) {
+                if (!holder.isPaused) {
+                    holder.webView.evaluateJavascript(SiteConfig.MUTE_PLAY_JS, null)
+                }
             } else {
                 holder.webView.evaluateJavascript(SiteConfig.PAUSE_JS, null)
             }
         }
     }
 
-    /** Called when leaving the swipe feed entirely: pause all to free resources/silence audio. */
+    /** Pause everything when leaving the feed (silence audio / free decode). */
     fun pauseAll() {
         liveHolders.forEach { it.webView.evaluateJavascript(SiteConfig.PAUSE_JS, null) }
+    }
+
+    companion object {
+        const val USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
     }
 }

@@ -1,18 +1,37 @@
-# 抖音模式 — Android WebView App
+# DY 浏览器 — Android WebView App
 
-把 `tiktok-mode.js` 的逻辑搬到了一个原生 Android WebView App 里，去掉了油猴脚本里 iframe + postMessage 那套迂回方案：每条视频现在是一个**独立的顶层 WebView 导航**，而不是嵌入 iframe，所以天然不受 `X-Frame-Options` / `frame-ancestors` 限制。
+一个基于 WebView 的多标签浏览器（参考 Via / Chrome / Safari 风格），内置「抖音模式」把支持的视频站变成上下滑动 Feed。
+
+## 浏览器功能
+
+**基础浏览**：多标签页、历史记录、书签、下载（DownloadManager）、页内查找、地址栏搜索
+**定制**：自定义 UA、主页定制（Logo 文字 / 背景图 / 搜索框）、搜索引擎切换与自定义、自定义 CSS（全站注入）、用户脚本（油猴风格全站注入 JS）
+**隐私安全**：WebView 沙盒、防追踪（DNT + 拦截分析域名）、隐身标签页、清除数据（Cookie/缓存/存储/历史）
+**效率工具**：资源嗅探（视频/音频）、广告拦截、夜间模式、无图模式、电脑模式、整页截图、离线保存（.mht）、查看源码、以图搜图 / 看图模式（长按图片）、抖音模式
+
+> 进行中 / 后续：标签页缩略图网格、18 种手势、按域名的站点专属设置、广告可视化标记、油猴脚本多脚本管理。当前用户脚本/CSS 为单一全局脚本。
+
+## 抖音模式
+
+每条视频是一个**独立顶层 WebView 导航**（非 iframe），不受 `X-Frame-Options` / `frame-ancestors` 限制。
 
 ## 已实现
 
 - **默认直接进入抖音模式**：启动后后台加载 `missav.ai`，抓取链接后立即进入全屏滑动 Feed
-- **一键切换普通模式**：右上角「🌐 普通模式」按钮切回网页本身样式（带地址栏的普通浏览器视图）；普通模式右下角「🎵 抖音模式」按钮可再切回滑动模式
-- 普通模式下可输入任意网址浏览；在白小唐 `baixiaotangtop.com` 或 MissAV 系列域名的页面上点「抖音模式」即按当前页面收集视频
+- **一键切换普通模式**：Feed 左上角「← 普通模式」切回网页本身样式（Material 3 风格浏览器：后退 / 圆角地址栏 / 刷新 / 菜单）；普通模式右下角「抖音模式」FAB 可再切回
+- **内置广告拦截**：基于 host 后缀名单（`assets/ad_hosts.txt`，覆盖 ExoClick/JuicyAds/PopAds/Adsterra 等常见弹窗广告网络）在 `shouldInterceptRequest` 拦截；菜单里可一键开关。另外注入 JS 屏蔽 `window.open` 弹窗劫持
+- Material 3 深色主题，矢量图标，圆角控件，底部渐变遮罩 + 标题，右侧操作栏（静音/重载），加载用 ProgressBar 圆形进度
 - `ViewPager2` 纵向滑动 Feed，每页一个独立 WebView 直接加载详情页（非 iframe）
-- 进入详情页后注入 JS：隐藏页面其余 UI、把 `<video>` 撑满全屏、静音自动播放
-- 点击屏幕：先取消静音播放，再点切换暂停/继续
-- 滑动切页：当前页静音自动播，其余页暂停
+- 点击屏幕：先取消静音播放，再点切换暂停/继续；滑动切页当前页静音自动播、其余页暂停
 - 返回键：普通模式有历史则后退，否则回到抖音 Feed；Feed 下再按返回退出
-- `HeaderStrippingWebViewClient`：用 OkHttp 代理子资源请求并剥离 `X-Frame-Options`/`Content-Security-Policy`，用于站点播放器内部自己嵌的跨域 iframe（如视频 CDN 播放器）
+- `HeaderStrippingWebViewClient`：广告拦截 + 用 OkHttp 代理子资源请求并剥离 `X-Frame-Options`/`Content-Security-Policy`
+- 使用桌面级 Chrome UA，降低 Cloudflare 拦截概率
+
+## 播放修复（重要）
+
+之前"无法播放"的根因：注入的 CSS 用 `body > * { display:none }` 把整页直接子元素都隐藏了，而 `<video>` 嵌在某个子容器深处——父级 `display:none` 时，子级再设 `display:block` 也无法显示，所以视频永远不渲染。
+
+现在改为**把 `<video>` 节点整体搬进我们自建的全屏 `#__tk_stage` 容器**（移动节点而非重建，站点的 hls.js 播放器仍然控制同一个元素），再隐藏其余内容；同时会递归进入同源 iframe 处理。MissAV 的实测结构是：m3u8 地址打包在主页面的混淆 JS 里，播放器在主文档内建 `<video>`，因此该方案适用。
 
 ## 获取 APK
 

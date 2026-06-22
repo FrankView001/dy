@@ -6,15 +6,18 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.ByteArrayInputStream
 
 /**
- * X-Frame-Options/CSP frame-ancestors only block a resource from rendering
- * *inside an iframe*. Top-level navigations (each detail page we load) are
- * never affected by it. The header only matters for iframes a player embeds
- * internally (e.g. a video CDN's own player frame), since from that CDN's
- * point of view our app is a third-party embedder. We strip it there by
- * fetching the resource ourselves and re-emitting the response, since the
- * stock WebViewClient never exposes real headers if you just call super().
+ * Combines two request-level behaviours that a plain WebView can't do on its own:
+ *
+ *  1. Ad/popunder blocking - requests to known ad hosts return an empty 200 so
+ *     they never load (see [AdBlocker]).
+ *  2. Frame-restriction stripping - X-Frame-Options / CSP frame-ancestors only
+ *     block a resource from rendering inside an iframe. The detail pages we open
+ *     are top-level navigations so they're unaffected, but a site's own player
+ *     may embed a CDN iframe that the CDN refuses to be framed by a third party.
+ *     For sub-frame GETs we re-fetch via OkHttp and drop those headers.
  */
 class HeaderStrippingWebViewClient(
     private val onPageLoaded: ((String) -> Unit)? = null
@@ -27,8 +30,13 @@ class HeaderStrippingWebViewClient(
         view: WebView,
         request: WebResourceRequest
     ): WebResourceResponse? {
-        // Only proxy GET requests for sub-frames; let everything else (main
-        // document, POSTs, media streams) go through the native fast path.
+        val host = request.url.host
+        if (AdBlocker.shouldBlock(host)) {
+            return emptyResponse()
+        }
+
+        // Only proxy GET sub-frame requests to strip framing headers. The main
+        // document, POSTs and media streams take the native fast path.
         if (request.isForMainFrame || request.method != "GET") return null
 
         return try {
@@ -61,5 +69,10 @@ class HeaderStrippingWebViewClient(
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         onPageLoaded?.invoke(url)
+    }
+
+    companion object {
+        fun emptyResponse(): WebResourceResponse =
+            WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
     }
 }
