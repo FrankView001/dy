@@ -1134,7 +1134,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun enterAdMarker() {
         val wv = tabs.current?.webView ?: return
-        Toast.makeText(this, "点击页面上的广告即可屏蔽，再次点击空白处退出", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "点击页面上的广告元素，再用下方工具条调整范围并保存", Toast.LENGTH_LONG).show()
         wv.evaluateJavascript(AD_MARK_JS, null)
     }
 
@@ -1184,16 +1184,29 @@ class MainActivity : AppCompatActivity() {
         const val AD_MARK_JS = """(function(){
           if(window.__dyAdMark){window.__dyAdMark.stop();return;}
           var box=document.createElement('div');
-          box.style.cssText='position:fixed;pointer-events:none;border:2px solid #FE2C55;background:rgba(254,44,85,0.20);z-index:2147483646;transition:all .04s;box-sizing:border-box;';
+          box.style.cssText='position:fixed;pointer-events:none;border:2px solid #FE2C55;background:rgba(254,44,85,0.20);z-index:2147483645;transition:all .04s;box-sizing:border-box;';
           var shield=document.createElement('div');
-          shield.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;cursor:crosshair;background:rgba(0,0,0,0.001);';
+          shield.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483646;cursor:crosshair;background:rgba(0,0,0,0.001);';
           var hint=document.createElement('div');
           hint.style.cssText='position:fixed;left:50%;top:14px;transform:translateX(-50%);background:rgba(254,44,85,0.95);color:#fff;padding:8px 16px;border-radius:18px;font-size:13px;z-index:2147483647;font-family:-apple-system,Roboto,sans-serif;box-shadow:0 4px 10px rgba(0,0,0,0.3);';
-          hint.textContent='点击要屏蔽的元素 (再次点击空白处退出)';
+          hint.textContent='点击要屏蔽的元素';
+          var bar=document.createElement('div');
+          bar.style.cssText='position:fixed;left:0;right:0;bottom:0;top:auto;z-index:2147483647;display:none;justify-content:space-around;align-items:center;background:rgba(20,20,24,0.96);padding:10px 6px;font-family:-apple-system,Roboto,sans-serif;';
+          var atTop=false;
+          function btn(label){
+            var b=document.createElement('div');
+            b.textContent=label;
+            b.style.cssText='color:#fff;font-size:14px;padding:8px 10px;border-radius:8px;';
+            bar.appendChild(b);
+            return b;
+          }
+          var upBtn=btn('^'), growBtn=btn('扩大'), shrinkBtn=btn('缩小'), saveBtn=btn('保存'), cancelBtn=btn('取消');
           document.documentElement.appendChild(box);
           document.documentElement.appendChild(shield);
           document.documentElement.appendChild(hint);
+          document.documentElement.appendChild(bar);
           var lastEl=null;
+          var history=[];
           function sel(el){
             if(!el||el===document.body||el===document.documentElement) return '';
             var t=el.tagName.toLowerCase();
@@ -1215,29 +1228,55 @@ class MainActivity : AppCompatActivity() {
             return el;
           }
           function paint(el){
-            if(!el||el===box||el===shield||el===hint){return;}
-            lastEl=el;
+            if(!el||el===box||el===shield||el===hint||el===bar){return;}
             var r=el.getBoundingClientRect();
             box.style.left=r.left+'px';box.style.top=r.top+'px';
             box.style.width=r.width+'px';box.style.height=r.height+'px';
           }
-          function mv(e){var t=e.touches?e.touches[0]:e; paint(at(t.clientX,t.clientY));}
+          function select(el){
+            lastEl=el; paint(el);
+            bar.style.display='flex';
+            hint.style.display='none';
+          }
+          function mv(e){var t=e.touches?e.touches[0]:e; if(!lastEl) paint(at(t.clientX,t.clientY));}
           function tap(e){
+            if(lastEl) return;
             e.preventDefault(); e.stopPropagation();
             var t=e.changedTouches?e.changedTouches[0]:e;
             var el=at(t.clientX,t.clientY);
-            if(!el||el===document.body||el===document.documentElement){stop();return;}
-            var s=sel(el);
-            if(!s){stop();return;}
-            try{Android.onMarkAd(location.hostname, s);}catch(_){}
-            try{document.querySelectorAll(s).forEach(function(n){n.style.setProperty('display','none','important');});}catch(_){}
+            if(!el||el===document.body||el===document.documentElement){return;}
+            history=[el];
+            select(el);
           }
+          upBtn.addEventListener('click',function(){
+            atTop=!atTop;
+            bar.style.top=atTop?'0':'auto';
+            bar.style.bottom=atTop?'auto':'0';
+          });
+          growBtn.addEventListener('click',function(){
+            var p=lastEl&&lastEl.parentElement;
+            if(!p||p===document.body||p===document.documentElement) return;
+            history.push(p); select(p);
+          });
+          shrinkBtn.addEventListener('click',function(){
+            if(history.length<2) return;
+            history.pop(); select(history[history.length-1]);
+          });
+          saveBtn.addEventListener('click',function(){
+            var s=sel(lastEl);
+            if(s){
+              try{Android.onMarkAd(location.hostname, s);}catch(_){}
+              try{document.querySelectorAll(s).forEach(function(n){n.style.setProperty('display','none','important');});}catch(_){}
+            }
+            stop();
+          });
+          cancelBtn.addEventListener('click',stop);
           shield.addEventListener('mousemove',mv,true);
           shield.addEventListener('touchmove',mv,true);
           shield.addEventListener('click',tap,true);
           shield.addEventListener('touchend',tap,true);
           function stop(){
-            [box,shield,hint].forEach(function(n){if(n.parentNode)n.parentNode.removeChild(n);});
+            [box,shield,hint,bar].forEach(function(n){if(n.parentNode)n.parentNode.removeChild(n);});
             window.__dyAdMark=null;
           }
           window.__dyAdMark={stop:stop};
