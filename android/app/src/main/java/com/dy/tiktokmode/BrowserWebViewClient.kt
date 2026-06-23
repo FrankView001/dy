@@ -15,6 +15,7 @@ import okhttp3.Request
  */
 class BrowserWebViewClient(
     private val prefs: Prefs,
+    private val userScripts: UserScriptStore,
     private val onStarted: (url: String) -> Unit,
     private val onFinished: (url: String, title: String?) -> Unit
 ) : WebViewClient() {
@@ -59,20 +60,31 @@ class BrowserWebViewClient(
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         injectCss(view)
+        runUserScripts(view, url, "document-start")
         onStarted(url)
     }
 
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         injectCss(view)
-        injectUserScript(view)
+        runUserScripts(view, url, "document-end")
+        view.postDelayed({ runUserScripts(view, url, "document-idle") }, 300)
         onFinished(url, view.title)
     }
 
     private fun injectCss(view: WebView) {
         val sb = StringBuilder()
+        // Algorithmic dark applied via WebSettingsCompat from MainActivity; this
+        // CSS layer is a fallback for sites whose author themes ignore it.
         if (prefs.nightMode) sb.append(NIGHT_CSS)
+        if (prefs.noImageMode) sb.append(NO_IMAGE_CSS)
         if (prefs.customCss.isNotBlank()) sb.append(prefs.customCss)
+        // Per-host user-marked ad selectors.
+        val host = try { android.net.Uri.parse(view.url ?: "").host } catch (_: Exception) { null }
+        val marks = AdMarkStore.selectorsFor(host)
+        if (marks.isNotEmpty()) {
+            sb.append(marks.joinToString(",")).append("{display:none!important;visibility:hidden!important;}")
+        }
         if (sb.isEmpty()) return
         val css = sb.toString().replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
         view.evaluateJavascript(
@@ -83,10 +95,11 @@ class BrowserWebViewClient(
         )
     }
 
-    private fun injectUserScript(view: WebView) {
-        val script = prefs.userScript
-        if (script.isBlank()) return
-        view.evaluateJavascript("(function(){try{$script}catch(e){console.log(e)}})();", null)
+    private fun runUserScripts(view: WebView, url: String, runAt: String) {
+        if (!prefs.userScriptsEnabled) return
+        userScripts.activeFor(url, runAt).forEach { s ->
+            view.evaluateJavascript("(function(){try{${s.code}}catch(e){console.log(e)}})();", null)
+        }
     }
 
     companion object {
@@ -95,5 +108,8 @@ class BrowserWebViewClient(
         private const val NIGHT_CSS =
             "html{filter:invert(1) hue-rotate(180deg)!important;background:#0d0d0d!important;}" +
             "img,video,picture,canvas,iframe,svg,[style*=\"background-image\"]{filter:invert(1) hue-rotate(180deg)!important;}"
+
+        private const val NO_IMAGE_CSS =
+            "img,picture,video[poster],[style*=\"background-image\"]{display:none!important;}"
     }
 }

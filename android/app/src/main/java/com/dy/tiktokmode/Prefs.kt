@@ -60,10 +60,26 @@ class Prefs(context: Context) {
         get() = sp.getString("custom_css", "") ?: ""
         set(v) = sp.edit().putString("custom_css", v).apply()
 
-    /** User-supplied JS (a lightweight Tampermonkey-style global script). */
-    var userScript: String
-        get() = sp.getString("user_script", "") ?: ""
-        set(v) = sp.edit().putString("user_script", v).apply()
+    /** Master switch for the user-script manager; off disables every script. */
+    var userScriptsEnabled: Boolean
+        get() = sp.getBoolean("user_scripts_enabled", true)
+        set(v) = sp.edit().putBoolean("user_scripts_enabled", v).apply()
+
+    /** One of: never, daily, 3days, weekly, monthly. */
+    var userScriptAutoUpdate: String
+        get() = sp.getString("user_script_auto_update", "never") ?: "never"
+        set(v) = sp.edit().putString("user_script_auto_update", v).apply()
+
+    /** Newline-separated subscription URLs (EasyList / hosts-format / AdGuard). */
+    var adSubscriptions: String
+        get() = sp.getString("ad_subs",
+            "https://adrules.top/adrules_hosts.txt"
+        ) ?: ""
+        set(v) = sp.edit().putString("ad_subs", v).apply()
+
+    var adSubscriptionRuleCount: Int
+        get() = sp.getInt("ad_sub_count", 0)
+        set(v) = sp.edit().putInt("ad_sub_count", v).apply()
 
     companion object {
         const val HOME_URL = "about:home"

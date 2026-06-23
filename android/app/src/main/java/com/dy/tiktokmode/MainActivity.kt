@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private lateinit var history: HistoryStore
     private lateinit var bookmarks: BookmarkStore
+    private lateinit var userScripts: UserScriptStore
     private lateinit var tabs: TabManager
 
     private lateinit var webContainer: FrameLayout
@@ -91,7 +92,9 @@ class MainActivity : AppCompatActivity() {
         prefs = Prefs(this)
         history = HistoryStore(this)
         bookmarks = BookmarkStore(this)
+        userScripts = UserScriptStore(this)
         AdBlocker.init(applicationContext)
+        AdMarkStore.init(applicationContext)
         WebView.setWebContentsDebuggingEnabled(true)
 
         webContainer = findViewById(R.id.webContainer)
@@ -158,6 +161,7 @@ class MainActivity : AppCompatActivity() {
 
         val client = BrowserWebViewClient(
             prefs,
+            userScripts,
             onStarted = { url -> onPageStarted(wv, url) },
             onFinished = { url, title -> onPageFinished(wv, url, title) }
         )
@@ -195,6 +199,20 @@ class MainActivity : AppCompatActivity() {
         }
         s.loadsImagesAutomatically = !prefs.noImageMode
         s.blockNetworkImage = prefs.noImageMode
+        // Desktop mode: also make the WebView render at the wide viewport so
+        // the page lays out at desktop width, not zoomed-to-mobile.
+        s.useWideViewPort = true
+        s.loadWithOverviewMode = true
+        s.setSupportZoom(true)
+        s.builtInZoomControls = true
+        s.displayZoomControls = false
+        // Algorithmic darkening (Android's official "force dark" since WebView 79).
+        try {
+            if (androidx.webkit.WebViewFeature.isFeatureSupported(
+                    androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
+                androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(s, prefs.nightMode)
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun tabForWebView(wv: WebView): BrowserTab? = tabs.tabs.firstOrNull { it.webView === wv }
@@ -361,15 +379,17 @@ class MainActivity : AppCompatActivity() {
     // ---------------- Menu ----------------
 
     /** A single grid tile spec. */
-    private data class Tile(val icon: Int, val label: String, val active: Boolean, val onClick: () -> Unit)
+    private data class Tile(
+        val icon: Int, val label: String, val active: Boolean,
+        val onClick: () -> Unit, val onLongClick: (() -> Unit)? = null
+    )
 
     private fun showMenu() {
         val sheet = BottomSheetDialog(this)
-        val scroll = androidx.core.widget.NestedScrollView(this)
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundResource(R.drawable.bg_sheet)
-            setPadding(dp(6), dp(10), dp(6), dp(20))
+            setPadding(dp(6), dp(10), dp(6), dp(16))
         }
 
         // Drag handle.
@@ -382,16 +402,18 @@ class MainActivity : AppCompatActivity() {
 
         val url = tabs.current?.currentUrl ?: ""
         val isBookmarked = bookmarks.isBookmarked(url)
-
         fun act(block: () -> Unit): () -> Unit = { sheet.dismiss(); block() }
 
-        box.addView(sectionTitle("常用"))
-        box.addView(tileGrid(listOf(
+        // Single flat list of tiles, paged 2x5 with horizontal swipe (Via style).
+        val tiles = listOf(
             Tile(if (isBookmarked) R.drawable.ic_bookmark_filled else R.drawable.ic_bookmark,
                 if (isBookmarked) "已收藏" else "添加书签", isBookmarked, act {
-                    if (isBookmarked) bookmarks.remove(url)
-                    else bookmarks.add(tabs.current?.title ?: url, url)
-                    Toast.makeText(this, if (isBookmarked) "已移除书签" else "已添加书签", Toast.LENGTH_SHORT).show()
+                    if (isBookmarked) {
+                        bookmarks.remove(url)
+                        Toast.makeText(this, "已移除书签", Toast.LENGTH_SHORT).show()
+                    } else {
+                        showAddBookmarkDialog(tabs.current?.title ?: url, url)
+                    }
                 }),
             Tile(R.drawable.ic_bookmark, "书签", false, act { showBookmarks() }),
             Tile(R.drawable.ic_history, "历史", false, act { showHistory() }),
@@ -399,16 +421,17 @@ class MainActivity : AppCompatActivity() {
             Tile(R.drawable.ic_music_note, "抖音模式", false, act { enterTikTok() }),
             Tile(R.drawable.ic_incognito, "隐身标签", false, act { openInNewTab(Prefs.HOME_URL, true); omnibox.requestFocus() }),
             Tile(R.drawable.ic_link, "复制链接", false, act { copyUrl() }),
-            Tile(R.drawable.ic_share, "其他应用", false, act { openExternally() })
-        )))
-
-        box.addView(sectionTitle("开关"))
-        box.addView(tileGrid(listOf(
+            Tile(R.drawable.ic_share, "其他应用", false, act { openExternally() }),
             Tile(R.drawable.ic_shield, "广告拦截", prefs.adBlockEnabled, act {
-                prefs.adBlockEnabled = !prefs.adBlockEnabled; reloadCurrent()
-            }),
+                prefs.adBlockEnabled = !prefs.adBlockEnabled; AdBlocker.enabled = prefs.adBlockEnabled; reloadCurrent()
+            }, onLongClick = act { startActivity(Intent(this, AdBlockActivity::class.java)) }),
+            Tile(R.drawable.ic_target, "标记广告", false, act { enterAdMarker() }),
+            Tile(R.drawable.ic_list, "已标记广告", false, act { showMarkedAds() }),
+            Tile(R.drawable.ic_code, "油猴脚本", false, act { startActivity(Intent(this, UserScriptActivity::class.java)) }),
             Tile(R.drawable.ic_night, "夜间模式", prefs.nightMode, act {
-                prefs.nightMode = !prefs.nightMode; reloadCurrent()
+                prefs.nightMode = !prefs.nightMode
+                tabs.tabs.forEach { applyUaAndImages(it.webView.settings) }
+                tabs.current?.webView?.reload()
             }),
             Tile(R.drawable.ic_desktop, "电脑模式", prefs.desktopMode, act {
                 prefs.desktopMode = !prefs.desktopMode
@@ -417,22 +440,115 @@ class MainActivity : AppCompatActivity() {
             Tile(R.drawable.ic_image, "无图模式", prefs.noImageMode, act {
                 prefs.noImageMode = !prefs.noImageMode
                 tabs.current?.let { applyUaAndImages(it.webView.settings); it.webView.reload() }
-            })
-        )))
-
-        box.addView(sectionTitle("工具"))
-        box.addView(tileGrid(listOf(
+            }),
             Tile(R.drawable.ic_stream, "资源嗅探", false, act { showSniffer() }),
             Tile(R.drawable.ic_camera, "整页截图", false, act { captureScreenshot() }),
             Tile(R.drawable.ic_download, "离线保存", false, act { saveOffline() }),
             Tile(R.drawable.ic_code, "查看源码", false, act { viewSource() }),
             Tile(R.drawable.ic_delete, "清除数据", false, act { confirmClearData() }),
             Tile(R.drawable.ic_settings, "设置", false, act { startActivity(Intent(this, SettingsActivity::class.java)) })
-        )))
+        )
 
-        scroll.addView(box)
-        sheet.setContentView(scroll)
+        // 2 rows x 5 cols per page; page indicator dots beneath.
+        val perPage = 10
+        val pages = tiles.chunked(perPage)
+        val pager = androidx.viewpager2.widget.ViewPager2(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(220)
+            )
+            adapter = TilePagerAdapter(pages)
+        }
+        box.addView(pager)
+
+        // Dot indicator.
+        val dots = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        val dotViews = pages.indices.map { i ->
+            View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(6), dp(6)).apply {
+                    leftMargin = dp(4); rightMargin = dp(4)
+                }
+                setBackgroundResource(if (i == 0) R.drawable.bg_dot_active else R.drawable.bg_dot)
+            }.also { dots.addView(it) }
+        }
+        pager.registerOnPageChangeCallback(object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                dotViews.forEachIndexed { i, v ->
+                    v.setBackgroundResource(if (i == position) R.drawable.bg_dot_active else R.drawable.bg_dot)
+                }
+            }
+        })
+        if (pages.size > 1) box.addView(dots)
+
+        sheet.setContentView(box)
         sheet.show()
+    }
+
+    /** Adapter that renders one 2x5 page of tiles per ViewPager2 page. */
+    private inner class TilePagerAdapter(private val pages: List<List<Tile>>) :
+        androidx.recyclerview.widget.RecyclerView.Adapter<TilePagerAdapter.VH>() {
+        inner class VH(val grid: android.widget.GridLayout) :
+            androidx.recyclerview.widget.RecyclerView.ViewHolder(grid)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+            val grid = android.widget.GridLayout(this@MainActivity).apply {
+                columnCount = 5
+                rowCount = 2
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+            return VH(grid)
+        }
+
+        override fun getItemCount(): Int = pages.size
+
+        override fun onBindViewHolder(holder: VH, position: Int) {
+            holder.grid.removeAllViews()
+            pages[position].forEach { t -> holder.grid.addView(buildTile(t)) }
+        }
+    }
+
+    /** Builds a single tile cell sized to fit a 5-column grid row. */
+    private fun buildTile(t: Tile): View {
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(4), dp(10), dp(4), dp(10))
+            setBackgroundResource(outValueSelectableBackground())
+            setOnClickListener { t.onClick() }
+            if (t.onLongClick != null) setOnLongClickListener { t.onLongClick.invoke(); true }
+            layoutParams = android.widget.GridLayout.LayoutParams().apply {
+                width = 0
+                height = 0
+                columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                rowSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+            }
+        }
+        val iconWrap = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
+            if (t.active) setBackgroundResource(R.drawable.bg_tile_active)
+        }
+        iconWrap.addView(ImageView(this).apply {
+            setImageResource(t.icon)
+            if (t.active) setColorFilter(0xFFFE2C55.toInt())
+            layoutParams = FrameLayout.LayoutParams(dp(22), dp(22)).apply { gravity = Gravity.CENTER }
+        })
+        cell.addView(iconWrap)
+        cell.addView(TextView(this).apply {
+            text = t.label
+            setTextColor(if (t.active) 0xFFFE2C55.toInt() else 0xFFE8E8EC.toInt())
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, 0)
+            maxLines = 1
+        })
+        return cell
     }
 
     private fun sectionTitle(text: String): TextView = TextView(this).apply {
@@ -440,46 +556,6 @@ class MainActivity : AppCompatActivity() {
         setTextColor(0xFF8A8A92.toInt())
         textSize = 12f
         setPadding(dp(14), dp(14), dp(14), dp(6))
-    }
-
-    /** Builds a 4-column grid of icon tiles. */
-    private fun tileGrid(tiles: List<Tile>): android.widget.GridLayout {
-        val cols = 4
-        val grid = android.widget.GridLayout(this).apply {
-            columnCount = cols
-        }
-        tiles.forEach { t ->
-            val cell = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                setPadding(dp(4), dp(12), dp(4), dp(12))
-                setBackgroundResource(outValueSelectableBackground())
-                setOnClickListener { t.onClick() }
-                layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                    width = 0
-                    columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
-                }
-            }
-            val iconWrap = FrameLayout(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(46), dp(46))
-                if (t.active) setBackgroundResource(R.drawable.bg_tile_active)
-            }
-            iconWrap.addView(ImageView(this).apply {
-                setImageResource(t.icon)
-                if (t.active) setColorFilter(0xFFFE2C55.toInt())
-                layoutParams = FrameLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER }
-            })
-            cell.addView(iconWrap)
-            cell.addView(TextView(this).apply {
-                text = t.label
-                setTextColor(if (t.active) 0xFFFE2C55.toInt() else 0xFFE8E8EC.toInt())
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setPadding(0, dp(6), 0, 0)
-            })
-            grid.addView(cell)
-        }
-        return grid
     }
 
     private fun outValueSelectableBackground(): Int {
@@ -492,7 +568,217 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- Lists: bookmarks / history / tabs / sniffer ----------------
 
-    private fun showBookmarks() = showSiteList("书签", bookmarks.all(), onClear = { bookmarks.clear() })
+    /** Add-bookmark dialog: editable title/link, folder picker, optional home shortcut. */
+    private fun showAddBookmarkDialog(defaultTitle: String, defaultUrl: String) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(0))
+        }
+        val titleInput = EditText(this).apply { setText(defaultTitle); hint = "标题" }
+        val urlInput = EditText(this).apply { setText(defaultUrl); hint = "链接" }
+        val folders = listOf(BookmarkEntry("", "书签", "", "", true)) + bookmarks.folders()
+        var folderIdx = 0
+        val folderRow = TextView(this).apply {
+            text = "位置: ${folders[0].title}"
+            setPadding(0, dp(14), 0, dp(2))
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity).setTitle("选择文件夹")
+                    .setItems(folders.map { it.title }.toTypedArray()) { _, i ->
+                        folderIdx = i; text = "位置: ${folders[i].title}"
+                    }.show()
+            }
+        }
+        val homeCheck = android.widget.CheckBox(this).apply {
+            text = "添加到主页搜藏"; isChecked = true
+            setPadding(0, dp(8), 0, dp(0))
+        }
+        box.addView(titleInput); box.addView(urlInput); box.addView(folderRow); box.addView(homeCheck)
+
+        AlertDialog.Builder(this).setTitle("添加书签").setView(box)
+            .setPositiveButton("确定") { _, _ ->
+                val title = titleInput.text.toString().trim().ifBlank { urlInput.text.toString().trim() }
+                val url = urlInput.text.toString().trim()
+                if (url.isNotBlank()) {
+                    bookmarks.add(title, url, if (homeCheck.isChecked) "" else folders[folderIdx].id)
+                    Toast.makeText(this, "已添加书签", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showBookmarks() = showBookmarkFolder("", "书签")
+
+    /** Recursive folder view with long-press menu. parentId="" = root. */
+    private fun showBookmarkFolder(parentId: String, title: String) {
+        val sheet = BottomSheetDialog(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(12), dp(8), dp(24))
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(TextView(this).apply {
+            this.text = title; setTextColor(0xFFFFFFFF.toInt()); textSize = 17f
+            setPadding(dp(12), 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        header.addView(Button(this).apply {
+            text = "新建文件夹"
+            setOnClickListener {
+                val input = EditText(this@MainActivity).apply { hint = "文件夹名" }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("新建文件夹").setView(input)
+                    .setPositiveButton("创建") { _, _ ->
+                        val name = input.text.toString().trim()
+                        if (name.isNotEmpty()) {
+                            bookmarks.addFolder(name, parentId)
+                            sheet.dismiss(); showBookmarkFolder(parentId, title)
+                        }
+                    }.setNegativeButton("取消", null).show()
+            }
+        })
+        box.addView(header)
+
+        val items = bookmarks.children(parentId)
+        if (items.isEmpty()) {
+            box.addView(TextView(this).apply {
+                text = "（空，从书签按钮添加或长按重命名/移动）"
+                setTextColor(0xFF888890.toInt()); setPadding(dp(14), dp(20), 0, 0)
+            })
+        }
+
+        val scroll = androidx.core.widget.NestedScrollView(this)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        items.forEach { e ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setBackgroundResource(outValueSelectableBackground())
+                setOnClickListener {
+                    if (e.folder) {
+                        sheet.dismiss(); showBookmarkFolder(e.id, e.title)
+                    } else {
+                        sheet.dismiss(); tabs.current?.let { loadUrl(it, e.url) }
+                    }
+                }
+                setOnLongClickListener {
+                    showBookmarkActions(e) { sheet.dismiss(); showBookmarkFolder(parentId, title) }
+                    true
+                }
+            }
+            row.addView(ImageView(this).apply {
+                setImageResource(if (e.folder) R.drawable.ic_folder else R.drawable.ic_bookmark)
+                setColorFilter(if (e.folder) 0xFFFFC107.toInt() else 0xFFE8E8EC.toInt())
+                layoutParams = LinearLayout.LayoutParams(dp(22), dp(22)).apply {
+                    rightMargin = dp(12)
+                }
+            })
+            val txt = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            txt.addView(TextView(this).apply {
+                text = e.title.ifBlank { e.url }
+                setTextColor(0xFFFFFFFF.toInt()); textSize = 15f; maxLines = 1
+            })
+            if (!e.folder) {
+                txt.addView(TextView(this).apply {
+                    text = e.url; setTextColor(0xFF8A8A92.toInt()); textSize = 12f; maxLines = 1
+                })
+            }
+            row.addView(txt)
+            list.addView(row)
+        }
+        scroll.addView(list); box.addView(scroll)
+        sheet.setContentView(box); sheet.show()
+    }
+
+    /** Long-press menu for a bookmark/folder. */
+    private fun showBookmarkActions(entry: BookmarkEntry, onChanged: () -> Unit) {
+        val opts = arrayOf("重命名", "移动到…", "删除")
+        AlertDialog.Builder(this)
+            .setTitle(entry.title)
+            .setItems(opts) { _, which ->
+                when (which) {
+                    0 -> {
+                        val input = EditText(this).apply { setText(entry.title) }
+                        AlertDialog.Builder(this).setTitle("重命名").setView(input)
+                            .setPositiveButton("保存") { _, _ ->
+                                val n = input.text.toString().trim()
+                                if (n.isNotEmpty()) { bookmarks.rename(entry.id, n); onChanged() }
+                            }.setNegativeButton("取消", null).show()
+                    }
+                    1 -> {
+                        val folders = listOf(BookmarkEntry("", "根目录", "", "", true)) +
+                                bookmarks.folders().filter { it.id != entry.id }
+                        val labels = folders.map { it.title }.toTypedArray()
+                        AlertDialog.Builder(this).setTitle("移动到")
+                            .setItems(labels) { _, idx ->
+                                bookmarks.move(entry.id, folders[idx].id); onChanged()
+                            }.show()
+                    }
+                    2 -> {
+                        AlertDialog.Builder(this).setTitle("删除")
+                            .setMessage("删除「${entry.title}」？")
+                            .setPositiveButton("删除") { _, _ -> bookmarks.removeById(entry.id); onChanged() }
+                            .setNegativeButton("取消", null).show()
+                    }
+                }
+            }.show()
+    }
+
+    private fun showMarkedAds() {
+        val host = try {
+            android.net.Uri.parse(tabs.current?.currentUrl ?: "").host
+        } catch (_: Exception) { null }
+        val marks = AdMarkStore.selectorsFor(host)
+        val sheet = BottomSheetDialog(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(8), dp(12), dp(8), dp(24))
+        }
+        box.addView(sectionTitle("当前网站标记的广告 (${marks.size})  ${host ?: ""}"))
+        if (marks.isEmpty()) {
+            box.addView(TextView(this).apply {
+                text = "本站还没有手动标记的广告，从菜单点击「标记广告」即可标记"
+                setTextColor(0xFF888890.toInt()); setPadding(dp(14), dp(20), dp(14), 0)
+            })
+        }
+        val scroll = androidx.core.widget.NestedScrollView(this)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        marks.forEach { sel ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                setBackgroundResource(outValueSelectableBackground())
+            }
+            row.addView(TextView(this).apply {
+                text = sel; setTextColor(0xFFE8E8EC.toInt()); textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(Button(this).apply {
+                text = "撤销"; setOnClickListener {
+                    // No per-selector remove API — rebuild without this entry.
+                    val others = marks.filter { it != sel }
+                    AdMarkStore.clear(host)
+                    others.forEach { AdMarkStore.add(host, it) }
+                    sheet.dismiss(); showMarkedAds(); reloadCurrent()
+                }
+            })
+            list.addView(row)
+        }
+        scroll.addView(list); box.addView(scroll)
+        if (marks.isNotEmpty()) {
+            box.addView(Button(this).apply {
+                text = "全部清除"; setOnClickListener {
+                    AdMarkStore.clear(host); sheet.dismiss(); reloadCurrent()
+                }
+            })
+        }
+        sheet.setContentView(box); sheet.show()
+    }
 
     private fun showHistory() = showSiteList("历史记录", history.all(), onClear = { history.clear() })
 
@@ -584,9 +870,14 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(10))
                 setBackgroundResource(outValueSelectableBackground())
                 setOnClickListener {
+                    sheet.dismiss()
+                    openInNewTab(r.url, false)
+                }
+                setOnLongClickListener {
                     val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("media", r.url))
                     Toast.makeText(this@MainActivity, "已复制链接", Toast.LENGTH_SHORT).show()
+                    true
                 }
             }
             row.addView(TextView(this).apply { text = "【${r.type}】"; setTextColor(0xFFFE2C55.toInt()); textSize = 12f })
@@ -636,10 +927,39 @@ class MainActivity : AppCompatActivity() {
             val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bmp)
             wv.draw(canvas)
-            val dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: filesDir
-            val file = File(dir, "shot_${System.currentTimeMillis()}.png")
-            FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 90, it) }
-            Toast.makeText(this, "已保存截图：${file.absolutePath}", Toast.LENGTH_LONG).show()
+
+            val filename = "dy_shot_${System.currentTimeMillis()}.png"
+            // API 29+ uses MediaStore so the screenshot shows up in 相册. On older
+            // devices fall back to a public Pictures path.
+            val savedTo: String = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val resolver = contentResolver
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
+                    put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,
+                        Environment.DIRECTORY_PICTURES + "/DY浏览器")
+                }
+                val uri = resolver.insert(
+                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
+                ) ?: throw java.io.IOException("MediaStore insert failed")
+                resolver.openOutputStream(uri).use { out ->
+                    out ?: throw java.io.IOException("open stream failed")
+                    bmp.compress(Bitmap.CompressFormat.PNG, 90, out)
+                }
+                "相册/Pictures/DY浏览器/$filename"
+            } else {
+                val dir = File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_PICTURES), "DY浏览器")
+                if (!dir.exists()) dir.mkdirs()
+                val file = File(dir, filename)
+                FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.PNG, 90, it) }
+                // Tell the gallery to index it.
+                sendBroadcast(
+                    Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(file))
+                )
+                file.absolutePath
+            }
+            Toast.makeText(this, "已保存截图：$savedTo", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(this, "截图失败：${e.message}", Toast.LENGTH_SHORT).show()
         }
@@ -809,6 +1129,21 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {}
             runOnUiThread { showVideoFeed(items) }
         }
+
+        /** Called by the ad-mark picker JS when the user taps an element. */
+        @JavascriptInterface
+        fun onMarkAd(host: String, selector: String) {
+            AdMarkStore.add(host, selector)
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, "已屏蔽：$selector", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun enterAdMarker() {
+        val wv = tabs.current?.webView ?: return
+        Toast.makeText(this, "点击页面上的广告元素，再用下方工具条调整范围并保存", Toast.LENGTH_LONG).show()
+        wv.evaluateJavascript(AD_MARK_JS, null)
     }
 
     // ---------------- Back / lifecycle ----------------
@@ -842,5 +1177,117 @@ class MainActivity : AppCompatActivity() {
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
         const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+        /**
+         * Via-style ad-mark picker. Outlines the hovered element and on click
+         * computes a compact CSS selector, posts it to the Android bridge, and
+         * hides the element. Tap blank area (html/body) to exit.
+         */
+        /**
+         * Element-picker for ad marking. To stop ads from hijacking the tap
+         * we lay a full-viewport translucent layer above the page, intercept
+         * the tap there (so the ad's own onclick can't fire), then look up
+         * the element underneath with document.elementFromPoint.
+         */
+        const val AD_MARK_JS = """(function(){
+          if(window.__dyAdMark){window.__dyAdMark.stop();return;}
+          var box=document.createElement('div');
+          box.style.cssText='position:fixed;pointer-events:none;border:2px solid #FE2C55;background:rgba(254,44,85,0.20);z-index:2147483645;transition:all .04s;box-sizing:border-box;';
+          var shield=document.createElement('div');
+          shield.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483646;cursor:crosshair;background:rgba(0,0,0,0.001);';
+          var hint=document.createElement('div');
+          hint.style.cssText='position:fixed;left:50%;top:14px;transform:translateX(-50%);background:rgba(254,44,85,0.95);color:#fff;padding:8px 16px;border-radius:18px;font-size:13px;z-index:2147483647;font-family:-apple-system,Roboto,sans-serif;box-shadow:0 4px 10px rgba(0,0,0,0.3);';
+          hint.textContent='点击要屏蔽的元素';
+          var bar=document.createElement('div');
+          bar.style.cssText='position:fixed;left:0;right:0;bottom:0;top:auto;z-index:2147483647;display:none;justify-content:space-around;align-items:center;background:rgba(20,20,24,0.96);padding:10px 6px;font-family:-apple-system,Roboto,sans-serif;';
+          var atTop=false;
+          function btn(label){
+            var b=document.createElement('div');
+            b.textContent=label;
+            b.style.cssText='color:#fff;font-size:14px;padding:8px 10px;border-radius:8px;';
+            bar.appendChild(b);
+            return b;
+          }
+          var upBtn=btn('^'), growBtn=btn('扩大'), shrinkBtn=btn('缩小'), saveBtn=btn('保存'), cancelBtn=btn('取消');
+          document.documentElement.appendChild(box);
+          document.documentElement.appendChild(shield);
+          document.documentElement.appendChild(hint);
+          document.documentElement.appendChild(bar);
+          var lastEl=null;
+          var history=[];
+          function sel(el){
+            if(!el||el===document.body||el===document.documentElement) return '';
+            var t=el.tagName.toLowerCase();
+            if(el.id&&/^[A-Za-z_][\w-]*$/.test(el.id)) return t+'#'+el.id;
+            var cs=[].slice.call(el.classList||[]).filter(function(c){return /^[A-Za-z_][\w-]*$/.test(c)&&c.length<40;}).slice(0,3);
+            if(cs.length) return t+'.'+cs.join('.');
+            var p=el.parentNode;
+            if(p&&p.children){
+              var sibs=[].slice.call(p.children).filter(function(c){return c.tagName===el.tagName;});
+              if(sibs.length>1) t+=':nth-of-type('+(sibs.indexOf(el)+1)+')';
+            }
+            var ps=sel(p);
+            return ps?ps+'>'+t:t;
+          }
+          function at(x,y){
+            shield.style.pointerEvents='none';
+            var el=document.elementFromPoint(x,y);
+            shield.style.pointerEvents='auto';
+            return el;
+          }
+          function paint(el){
+            if(!el||el===box||el===shield||el===hint||el===bar){return;}
+            var r=el.getBoundingClientRect();
+            box.style.left=r.left+'px';box.style.top=r.top+'px';
+            box.style.width=r.width+'px';box.style.height=r.height+'px';
+          }
+          function select(el){
+            lastEl=el; paint(el);
+            bar.style.display='flex';
+            hint.style.display='none';
+          }
+          function mv(e){var t=e.touches?e.touches[0]:e; if(!lastEl) paint(at(t.clientX,t.clientY));}
+          function tap(e){
+            if(lastEl) return;
+            e.preventDefault(); e.stopPropagation();
+            var t=e.changedTouches?e.changedTouches[0]:e;
+            var el=at(t.clientX,t.clientY);
+            if(!el||el===document.body||el===document.documentElement){return;}
+            history=[el];
+            select(el);
+          }
+          upBtn.addEventListener('click',function(){
+            atTop=!atTop;
+            bar.style.top=atTop?'0':'auto';
+            bar.style.bottom=atTop?'auto':'0';
+          });
+          growBtn.addEventListener('click',function(){
+            var p=lastEl&&lastEl.parentElement;
+            if(!p||p===document.body||p===document.documentElement) return;
+            history.push(p); select(p);
+          });
+          shrinkBtn.addEventListener('click',function(){
+            if(history.length<2) return;
+            history.pop(); select(history[history.length-1]);
+          });
+          saveBtn.addEventListener('click',function(){
+            var s=sel(lastEl);
+            if(s){
+              try{Android.onMarkAd(location.hostname, s);}catch(_){}
+              try{document.querySelectorAll(s).forEach(function(n){n.style.setProperty('display','none','important');});}catch(_){}
+            }
+            stop();
+          });
+          cancelBtn.addEventListener('click',stop);
+          shield.addEventListener('mousemove',mv,true);
+          shield.addEventListener('touchmove',mv,true);
+          shield.addEventListener('click',tap,true);
+          shield.addEventListener('touchend',tap,true);
+          function stop(){
+            [box,shield,hint,bar].forEach(function(n){if(n.parentNode)n.parentNode.removeChild(n);});
+            window.__dyAdMark=null;
+          }
+          window.__dyAdMark={stop:stop};
+        })();"""
     }
 }
