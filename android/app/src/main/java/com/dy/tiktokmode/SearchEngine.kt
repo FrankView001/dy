@@ -16,6 +16,15 @@ object SearchEngines {
     fun byKey(key: String): SearchEngine? = BUILT_IN.firstOrNull { it.key == key }
 
     /**
+     * Matches a bare host/host:port/host-with-path string, e.g. "baidu.com",
+     * "192.168.1.1", "localhost:8080/x". Requires a letter-led TLD (or numeric
+     * IPv4) so plain numbers/decimals like "3.14" fall through to search instead.
+     */
+    private val HOST_PATTERN = Regex(
+        "^(localhost|(\\d{1,3}\\.){3}\\d{1,3}|[\\w-]+(\\.[\\w-]+)*\\.[a-zA-Z]{2,})(:\\d+)?(/\\S*)?$"
+    )
+
+    /**
      * Turn raw omnibox text into a navigable URL: an explicit URL/host is loaded
      * directly, anything else becomes a search query on the active engine.
      */
@@ -27,7 +36,7 @@ object SearchEngines {
         ) return text
 
         val looksLikeUrl = text.startsWith("http://") || text.startsWith("https://") ||
-            (!text.contains(" ") && text.contains(".") && !text.endsWith("."))
+            (!text.contains(" ") && HOST_PATTERN.matches(text))
         if (looksLikeUrl) {
             return if (text.startsWith("http")) text else "https://$text"
         }
