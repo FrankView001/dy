@@ -402,9 +402,12 @@ class MainActivity : AppCompatActivity() {
         val tiles = listOf(
             Tile(if (isBookmarked) R.drawable.ic_bookmark_filled else R.drawable.ic_bookmark,
                 if (isBookmarked) "已收藏" else "添加书签", isBookmarked, act {
-                    if (isBookmarked) bookmarks.remove(url)
-                    else bookmarks.add(tabs.current?.title ?: url, url)
-                    Toast.makeText(this, if (isBookmarked) "已移除书签" else "已添加书签", Toast.LENGTH_SHORT).show()
+                    if (isBookmarked) {
+                        bookmarks.remove(url)
+                        Toast.makeText(this, "已移除书签", Toast.LENGTH_SHORT).show()
+                    } else {
+                        showAddBookmarkDialog(tabs.current?.title ?: url, url)
+                    }
                 }),
             Tile(R.drawable.ic_bookmark, "书签", false, act { showBookmarks() }),
             Tile(R.drawable.ic_history, "历史", false, act { showHistory() }),
@@ -556,6 +559,45 @@ class MainActivity : AppCompatActivity() {
     private fun reloadCurrent() { tabs.current?.webView?.reload() }
 
     // ---------------- Lists: bookmarks / history / tabs / sniffer ----------------
+
+    /** Add-bookmark dialog: editable title/link, folder picker, optional home shortcut. */
+    private fun showAddBookmarkDialog(defaultTitle: String, defaultUrl: String) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(0))
+        }
+        val titleInput = EditText(this).apply { setText(defaultTitle); hint = "标题" }
+        val urlInput = EditText(this).apply { setText(defaultUrl); hint = "链接" }
+        val folders = listOf(BookmarkEntry("", "书签", "", "", true)) + bookmarks.folders()
+        var folderIdx = 0
+        val folderRow = TextView(this).apply {
+            text = "位置: ${folders[0].title}"
+            setPadding(0, dp(14), 0, dp(2))
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity).setTitle("选择文件夹")
+                    .setItems(folders.map { it.title }.toTypedArray()) { _, i ->
+                        folderIdx = i; text = "位置: ${folders[i].title}"
+                    }.show()
+            }
+        }
+        val homeCheck = android.widget.CheckBox(this).apply {
+            text = "添加到主页搜藏"; isChecked = true
+            setPadding(0, dp(8), 0, dp(0))
+        }
+        box.addView(titleInput); box.addView(urlInput); box.addView(folderRow); box.addView(homeCheck)
+
+        AlertDialog.Builder(this).setTitle("添加书签").setView(box)
+            .setPositiveButton("确定") { _, _ ->
+                val title = titleInput.text.toString().trim().ifBlank { urlInput.text.toString().trim() }
+                val url = urlInput.text.toString().trim()
+                if (url.isNotBlank()) {
+                    bookmarks.add(title, url, if (homeCheck.isChecked) "" else folders[folderIdx].id)
+                    Toast.makeText(this, "已添加书签", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
 
     private fun showBookmarks() = showBookmarkFolder("", "书签")
 
