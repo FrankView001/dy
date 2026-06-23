@@ -376,7 +376,10 @@ class MainActivity : AppCompatActivity() {
     // ---------------- Menu ----------------
 
     /** A single grid tile spec. */
-    private data class Tile(val icon: Int, val label: String, val active: Boolean, val onClick: () -> Unit)
+    private data class Tile(
+        val icon: Int, val label: String, val active: Boolean,
+        val onClick: () -> Unit, val onLongClick: (() -> Unit)? = null
+    )
 
     private fun showMenu() {
         val sheet = BottomSheetDialog(this)
@@ -417,8 +420,8 @@ class MainActivity : AppCompatActivity() {
             Tile(R.drawable.ic_link, "复制链接", false, act { copyUrl() }),
             Tile(R.drawable.ic_share, "其他应用", false, act { openExternally() }),
             Tile(R.drawable.ic_shield, "广告拦截", prefs.adBlockEnabled, act {
-                prefs.adBlockEnabled = !prefs.adBlockEnabled; reloadCurrent()
-            }),
+                prefs.adBlockEnabled = !prefs.adBlockEnabled; AdBlocker.enabled = prefs.adBlockEnabled; reloadCurrent()
+            }, onLongClick = act { startActivity(Intent(this, AdBlockActivity::class.java)) }),
             Tile(R.drawable.ic_target, "标记广告", false, act { enterAdMarker() }),
             Tile(R.drawable.ic_list, "已标记广告", false, act { showMarkedAds() }),
             Tile(R.drawable.ic_night, "夜间模式", prefs.nightMode, act {
@@ -515,6 +518,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(4), dp(10), dp(4), dp(10))
             setBackgroundResource(outValueSelectableBackground())
             setOnClickListener { t.onClick() }
+            if (t.onLongClick != null) setOnLongClickListener { t.onLongClick.invoke(); true }
             layoutParams = android.widget.GridLayout.LayoutParams().apply {
                 width = 0
                 height = 0

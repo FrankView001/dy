@@ -35,6 +35,9 @@ object AdMarkStore {
         loaded = true
     }
 
+    /** All marked hosts with their selectors, for a global overview. */
+    fun allMarks(): Map<String, List<String>> = cache.mapValues { it.value.toList() }
+
     fun selectorsFor(host: String?): List<String> {
         if (host.isNullOrBlank()) return emptyList()
         return cache[host]?.toList() ?: emptyList()
