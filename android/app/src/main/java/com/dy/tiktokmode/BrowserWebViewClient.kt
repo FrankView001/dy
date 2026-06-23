@@ -15,6 +15,7 @@ import okhttp3.Request
  */
 class BrowserWebViewClient(
     private val prefs: Prefs,
+    private val userScripts: UserScriptStore,
     private val onStarted: (url: String) -> Unit,
     private val onFinished: (url: String, title: String?) -> Unit
 ) : WebViewClient() {
@@ -59,13 +60,15 @@ class BrowserWebViewClient(
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         injectCss(view)
+        runUserScripts(view, url, "document-start")
         onStarted(url)
     }
 
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         injectCss(view)
-        injectUserScript(view)
+        runUserScripts(view, url, "document-end")
+        view.postDelayed({ runUserScripts(view, url, "document-idle") }, 300)
         onFinished(url, view.title)
     }
 
@@ -92,10 +95,11 @@ class BrowserWebViewClient(
         )
     }
 
-    private fun injectUserScript(view: WebView) {
-        val script = prefs.userScript
-        if (script.isBlank()) return
-        view.evaluateJavascript("(function(){try{$script}catch(e){console.log(e)}})();", null)
+    private fun runUserScripts(view: WebView, url: String, runAt: String) {
+        if (!prefs.userScriptsEnabled) return
+        userScripts.activeFor(url, runAt).forEach { s ->
+            view.evaluateJavascript("(function(){try{${s.code}}catch(e){console.log(e)}})();", null)
+        }
     }
 
     companion object {

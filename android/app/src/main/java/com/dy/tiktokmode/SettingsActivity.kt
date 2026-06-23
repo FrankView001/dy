@@ -101,9 +101,7 @@ class SettingsActivity : AppCompatActivity() {
 
         category("自定义脚本")
         inputRow("自定义 CSS", prefs.customCss, "注入到每个页面", multiline = true) { v -> prefs.customCss = v }
-        inputRow("用户脚本", prefs.userScript, "油猴风格，全站注入 JS", multiline = true) { v ->
-            prefs.userScript = v
-        }
+        row("油猴脚本", "请从浏览器菜单进入「油猴脚本」管理") {}
 
         category("隐私")
         switchRow("发送 Do-Not-Track 头", "在请求中加入 DNT:1", prefs.doNotTrack) {

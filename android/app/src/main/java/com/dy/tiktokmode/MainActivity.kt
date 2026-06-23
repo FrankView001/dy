@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private lateinit var history: HistoryStore
     private lateinit var bookmarks: BookmarkStore
+    private lateinit var userScripts: UserScriptStore
     private lateinit var tabs: TabManager
 
     private lateinit var webContainer: FrameLayout
@@ -91,6 +92,7 @@ class MainActivity : AppCompatActivity() {
         prefs = Prefs(this)
         history = HistoryStore(this)
         bookmarks = BookmarkStore(this)
+        userScripts = UserScriptStore(this)
         AdBlocker.init(applicationContext)
         AdMarkStore.init(applicationContext)
         WebView.setWebContentsDebuggingEnabled(true)
@@ -159,6 +161,7 @@ class MainActivity : AppCompatActivity() {
 
         val client = BrowserWebViewClient(
             prefs,
+            userScripts,
             onStarted = { url -> onPageStarted(wv, url) },
             onFinished = { url, title -> onPageFinished(wv, url, title) }
         )
@@ -424,6 +427,7 @@ class MainActivity : AppCompatActivity() {
             }, onLongClick = act { startActivity(Intent(this, AdBlockActivity::class.java)) }),
             Tile(R.drawable.ic_target, "标记广告", false, act { enterAdMarker() }),
             Tile(R.drawable.ic_list, "已标记广告", false, act { showMarkedAds() }),
+            Tile(R.drawable.ic_code, "油猴脚本", false, act { startActivity(Intent(this, UserScriptActivity::class.java)) }),
             Tile(R.drawable.ic_night, "夜间模式", prefs.nightMode, act {
                 prefs.nightMode = !prefs.nightMode
                 tabs.tabs.forEach { applyUaAndImages(it.webView.settings) }
