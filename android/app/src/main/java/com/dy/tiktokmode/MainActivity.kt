@@ -862,9 +862,14 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(10))
                 setBackgroundResource(outValueSelectableBackground())
                 setOnClickListener {
+                    sheet.dismiss()
+                    openInNewTab(r.url, false)
+                }
+                setOnLongClickListener {
                     val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("media", r.url))
                     Toast.makeText(this@MainActivity, "已复制链接", Toast.LENGTH_SHORT).show()
+                    true
                 }
             }
             row.addView(TextView(this).apply { text = "【${r.type}】"; setTextColor(0xFFFE2C55.toInt()); textSize = 12f })
