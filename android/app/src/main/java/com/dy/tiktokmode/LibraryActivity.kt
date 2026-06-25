@@ -107,7 +107,7 @@ class LibraryActivity : AppCompatActivity() {
             setTextColor(0xFFFFFFFF.toInt())
             setHintTextColor(0xFF6E6E76.toInt())
             setPadding(dp(16), dp(10), dp(16), dp(10))
-            singleLine = true
+            setSingleLine(true)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}

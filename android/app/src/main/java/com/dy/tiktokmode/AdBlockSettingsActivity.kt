@@ -151,7 +151,7 @@ class AdBlockSettingsActivity : AppCompatActivity() {
             })
             row.addView(text)
             row.addView(TextView(this).apply {
-                text = "删除"; setTextColor(0xFFFE2C55.toInt()); textSize = 13f
+                this.text = "删除"; setTextColor(0xFFFE2C55.toInt()); textSize = 13f
                 setPadding(dp(12), dp(6), dp(6), dp(6))
                 setOnClickListener { rules.remove(rule.id); renderRules() }
             })
@@ -191,7 +191,7 @@ class AdBlockSettingsActivity : AppCompatActivity() {
                 setOnCheckedChangeListener { _, v -> subs.setEnabled(sub.id, v) }
             })
             row.addView(TextView(this).apply {
-                text = "✕"; setTextColor(0xFFFE2C55.toInt()); textSize = 14f
+                this.text = "✕"; setTextColor(0xFFFE2C55.toInt()); textSize = 14f
                 setPadding(dp(12), dp(6), dp(6), dp(6))
                 setOnClickListener { subs.remove(sub.id); renderSubs() }
             })

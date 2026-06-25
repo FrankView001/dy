@@ -3,7 +3,7 @@ package com.dy.tiktokmode
 import android.app.AlertDialog
 import android.os.Bundle
 import android.view.Gravity
-import android.view.HorizontalScrollView
+import android.widget.HorizontalScrollView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
