@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - claude/zen-albattani-ajer3f
+      - claude/exciting-edison-8gwzrt
+      - main
     paths:
       - "android/**"
       - ".github/workflows/android.yml"

@@ -49,7 +49,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private lateinit var history: HistoryStore
     private lateinit var bookmarks: BookmarkStore
+    private lateinit var bookmarkFolders: BookmarkFolderStore
+    private lateinit var adRules: AdRuleStore
+    private lateinit var userscripts: UserscriptStore
+    private lateinit var offline: OfflineStore
     private lateinit var tabs: TabManager
+    private var elementMarker: ElementMarker? = null
 
     private lateinit var webContainer: FrameLayout
     private lateinit var omnibox: EditText
@@ -84,6 +89,16 @@ class MainActivity : AppCompatActivity() {
             filePathCallback = null
         }
 
+    private val libraryLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val url = result.data?.getStringExtra(LibraryActivity.RESULT_URL)
+            if (!url.isNullOrBlank()) {
+                tabs.current?.let { loadUrl(it, url) }
+            } else if (result.data?.getStringExtra("action") == "tabs") {
+                showTabSwitcher()
+            }
+        }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,7 +106,13 @@ class MainActivity : AppCompatActivity() {
         prefs = Prefs(this)
         history = HistoryStore(this)
         bookmarks = BookmarkStore(this)
+        bookmarkFolders = BookmarkFolderStore(this)
+        adRules = AdRuleStore(this)
+        userscripts = UserscriptStore(this)
+        offline = OfflineStore(this)
         AdBlocker.init(applicationContext)
+        AdBlocker.enabled = prefs.adBlockEnabled
+        AdBlocker.builtInEnabled = prefs.adBlockBuiltInEnabled
         WebView.setWebContentsDebuggingEnabled(true)
 
         webContainer = findViewById(R.id.webContainer)
@@ -158,6 +179,8 @@ class MainActivity : AppCompatActivity() {
 
         val client = BrowserWebViewClient(
             prefs,
+            adRules,
+            userscripts,
             onStarted = { url -> onPageStarted(wv, url) },
             onFinished = { url, title -> onPageFinished(wv, url, title) }
         )
@@ -310,6 +333,17 @@ class MainActivity : AppCompatActivity() {
     // ---------------- Omnibox / bars ----------------
 
     private fun setupOmnibox() {
+        val refreshBtn = findViewById<ImageButton>(R.id.refreshBtn)
+        val clearBtn = findViewById<ImageButton>(R.id.omniClearBtn)
+        val goBtn = findViewById<ImageButton>(R.id.omniGoBtn)
+
+        fun applyEditState() {
+            val focused = omnibox.hasFocus()
+            refreshBtn.visibility = if (focused) View.GONE else View.VISIBLE
+            clearBtn.visibility = if (focused && omnibox.text.isNotEmpty()) View.VISIBLE else View.GONE
+            goBtn.visibility = if (focused) View.VISIBLE else View.GONE
+        }
+
         omnibox.setOnEditorActionListener { _, _, event ->
             val enterDown = event != null && event.keyCode == KeyEvent.KEYCODE_ENTER &&
                 event.action == KeyEvent.ACTION_DOWN
@@ -317,7 +351,19 @@ class MainActivity : AppCompatActivity() {
         }
         omnibox.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) syncOmnibox(tabs.current?.currentUrl ?: Prefs.HOME_URL)
+            applyEditState()
         }
+        omnibox.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { applyEditState() }
+        })
+
+        clearBtn.setOnClickListener {
+            omnibox.setText("")
+            omnibox.requestFocus()
+        }
+        goBtn.setOnClickListener { navigateFromOmnibox() }
     }
 
     private fun setupBottomBar() {
@@ -361,7 +407,13 @@ class MainActivity : AppCompatActivity() {
     // ---------------- Menu ----------------
 
     /** A single grid tile spec. */
-    private data class Tile(val icon: Int, val label: String, val active: Boolean, val onClick: () -> Unit)
+    private data class Tile(
+        val icon: Int,
+        val label: String,
+        val active: Boolean,
+        val onClick: () -> Unit,
+        val onLongClick: (() -> Unit)? = null
+    )
 
     private fun showMenu() {
         val sheet = BottomSheetDialog(this)
@@ -389,12 +441,17 @@ class MainActivity : AppCompatActivity() {
         box.addView(tileGrid(listOf(
             Tile(if (isBookmarked) R.drawable.ic_bookmark_filled else R.drawable.ic_bookmark,
                 if (isBookmarked) "已收藏" else "添加书签", isBookmarked, act {
-                    if (isBookmarked) bookmarks.remove(url)
-                    else bookmarks.add(tabs.current?.title ?: url, url)
-                    Toast.makeText(this, if (isBookmarked) "已移除书签" else "已添加书签", Toast.LENGTH_SHORT).show()
+                    if (isBookmarked) {
+                        bookmarks.remove(url)
+                        Toast.makeText(this, "已移除书签", Toast.LENGTH_SHORT).show()
+                    } else {
+                        BookmarkDialog.show(this, bookmarks, bookmarkFolders,
+                            defaultTitle = tabs.current?.title ?: url,
+                            defaultUrl = url)
+                    }
                 }),
-            Tile(R.drawable.ic_bookmark, "书签", false, act { showBookmarks() }),
-            Tile(R.drawable.ic_history, "历史", false, act { showHistory() }),
+            Tile(R.drawable.ic_bookmark, "书签", false, act { openLibrary(LibraryActivity.TAB_BOOKMARKS) }),
+            Tile(R.drawable.ic_history, "历史", false, act { openLibrary(LibraryActivity.TAB_HISTORY) }),
             Tile(R.drawable.ic_search, "页内查找", false, act { openFindBar() }),
             Tile(R.drawable.ic_music_note, "抖音模式", false, act { enterTikTok() }),
             Tile(R.drawable.ic_incognito, "隐身标签", false, act { openInNewTab(Prefs.HOME_URL, true); omnibox.requestFocus() }),
@@ -405,7 +462,12 @@ class MainActivity : AppCompatActivity() {
         box.addView(sectionTitle("开关"))
         box.addView(tileGrid(listOf(
             Tile(R.drawable.ic_shield, "广告拦截", prefs.adBlockEnabled, act {
-                prefs.adBlockEnabled = !prefs.adBlockEnabled; reloadCurrent()
+                prefs.adBlockEnabled = !prefs.adBlockEnabled
+                AdBlocker.enabled = prefs.adBlockEnabled
+                reloadCurrent()
+            }, onLongClick = {
+                sheet.dismiss()
+                startActivity(Intent(this, AdBlockSettingsActivity::class.java))
             }),
             Tile(R.drawable.ic_night, "夜间模式", prefs.nightMode, act {
                 prefs.nightMode = !prefs.nightMode; reloadCurrent()
@@ -425,6 +487,9 @@ class MainActivity : AppCompatActivity() {
             Tile(R.drawable.ic_stream, "资源嗅探", false, act { showSniffer() }),
             Tile(R.drawable.ic_camera, "整页截图", false, act { captureScreenshot() }),
             Tile(R.drawable.ic_download, "离线保存", false, act { saveOffline() }),
+            Tile(R.drawable.ic_download, "下载", false, act { startActivity(Intent(this, DownloadsActivity::class.java)) }),
+            Tile(R.drawable.ic_shield, "标记广告", false, act { startMarker() }),
+            Tile(R.drawable.ic_code, "脚本", false, act { startActivity(Intent(this, UserscriptListActivity::class.java)) }),
             Tile(R.drawable.ic_code, "查看源码", false, act { viewSource() }),
             Tile(R.drawable.ic_delete, "清除数据", false, act { confirmClearData() }),
             Tile(R.drawable.ic_settings, "设置", false, act { startActivity(Intent(this, SettingsActivity::class.java)) })
@@ -455,6 +520,9 @@ class MainActivity : AppCompatActivity() {
                 setPadding(dp(4), dp(12), dp(4), dp(12))
                 setBackgroundResource(outValueSelectableBackground())
                 setOnClickListener { t.onClick() }
+                if (t.onLongClick != null) {
+                    setOnLongClickListener { t.onLongClick.invoke(); true }
+                }
                 layoutParams = android.widget.GridLayout.LayoutParams().apply {
                     width = 0
                     columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
@@ -492,9 +560,21 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- Lists: bookmarks / history / tabs / sniffer ----------------
 
-    private fun showBookmarks() = showSiteList("书签", bookmarks.all(), onClear = { bookmarks.clear() })
+    private fun showBookmarks() = openLibrary(LibraryActivity.TAB_BOOKMARKS)
 
-    private fun showHistory() = showSiteList("历史记录", history.all(), onClear = { history.clear() })
+    private fun showHistory() = openLibrary(LibraryActivity.TAB_HISTORY)
+
+    private fun openLibrary(tab: Int) {
+        val i = Intent(this, LibraryActivity::class.java).putExtra(LibraryActivity.EXTRA_TAB, tab)
+        libraryLauncher.launch(i)
+    }
+
+    private fun startMarker() {
+        val wv = tabs.current?.webView ?: return
+        elementMarker = ElementMarker(this, findViewById(android.R.id.content), adRules) {
+            elementMarker = null
+        }.also { it.start(wv) }
+    }
 
     private fun showSiteList(title: String, items: List<SiteEntry>, onClear: () -> Unit) {
         val sheet = BottomSheetDialog(this)
@@ -584,9 +664,13 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(10))
                 setBackgroundResource(outValueSelectableBackground())
                 setOnClickListener {
+                    sheet.dismiss()
+                    openInNewTab(r.url, incognito = tabs.current?.incognito == true)
+                }
+                setOnLongClickListener {
                     val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("media", r.url))
-                    Toast.makeText(this@MainActivity, "已复制链接", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "已复制链接", Toast.LENGTH_SHORT).show(); true
                 }
             }
             row.addView(TextView(this).apply { text = "【${r.type}】"; setTextColor(0xFFFE2C55.toInt()); textSize = 12f })
@@ -649,8 +733,11 @@ class MainActivity : AppCompatActivity() {
         val wv = tabs.current?.webView ?: return
         val dir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
         val file = File(dir, "page_${System.currentTimeMillis()}.mht")
+        val pageTitle = tabs.current?.title ?: file.name
+        val pageUrl = tabs.current?.currentUrl ?: ""
         wv.saveWebArchive(file.absolutePath, false) { path ->
             runOnUiThread {
+                if (path != null) offline.add(path, pageTitle, pageUrl)
                 Toast.makeText(this, if (path != null) "已离线保存：$path" else "保存失败", Toast.LENGTH_LONG).show()
             }
         }
@@ -664,7 +751,12 @@ class MainActivity : AppCompatActivity() {
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             tabs.current?.webView?.settings?.userAgentString?.let { request.addRequestHeader("User-Agent", it) }
-            (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+            val id = (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+            DownloadStore(this).add(DownloadEntry(
+                id = id, fileName = name, url = url, sizeBytes = 0,
+                mimeType = mimeType ?: "", status = "下载中",
+                time = System.currentTimeMillis()
+            ))
             Toast.makeText(this, "开始下载：$name", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "下载失败：${e.message}", Toast.LENGTH_SHORT).show()
@@ -797,6 +889,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private inner class JsBridge {
+        @JavascriptInterface
+        fun markerSelectionChanged(selector: String) {
+            elementMarker?.onSelectionChanged(selector)
+        }
+
         @JavascriptInterface
         fun onItems(json: String) {
             val items = mutableListOf<VideoItem>()

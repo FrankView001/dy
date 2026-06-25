@@ -15,6 +15,8 @@ import okhttp3.Request
  */
 class BrowserWebViewClient(
     private val prefs: Prefs,
+    private val adRules: AdRuleStore,
+    private val userscripts: UserscriptStore,
     private val onStarted: (url: String) -> Unit,
     private val onFinished: (url: String, title: String?) -> Unit
 ) : WebViewClient() {
@@ -23,6 +25,20 @@ class BrowserWebViewClient(
 
     private val client = OkHttpClient.Builder().followRedirects(true).build()
     private val strippedHeaders = setOf("x-frame-options", "content-security-policy")
+
+    override fun shouldOverrideUrlLoading(
+        view: WebView,
+        request: WebResourceRequest
+    ): Boolean {
+        if (request.isForMainFrame &&
+            prefs.adBlockEnabled &&
+            AdBlocker.shouldBlock(request.url.host)
+        ) {
+            // Drop top-level navigation to known ad/redirect hosts.
+            return true
+        }
+        return false
+    }
 
     override fun shouldInterceptRequest(
         view: WebView,
@@ -59,13 +75,15 @@ class BrowserWebViewClient(
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         injectCss(view)
+        injectUserScript(view, Userscript.RUN_DOC_START)
         onStarted(url)
     }
 
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         injectCss(view)
-        injectUserScript(view)
+        injectUserScript(view, Userscript.RUN_DOC_END)
+        injectUserScript(view, Userscript.RUN_DOC_IDLE)
         onFinished(url, view.title)
     }
 
@@ -73,6 +91,13 @@ class BrowserWebViewClient(
         val sb = StringBuilder()
         if (prefs.nightMode) sb.append(NIGHT_CSS)
         if (prefs.customCss.isNotBlank()) sb.append(prefs.customCss)
+        if (prefs.adBlockEnabled) {
+            val host = try { android.net.Uri.parse(view.url).host ?: "" } catch (e: Exception) { "" }
+            val rules = adRules.forDomain(host)
+            if (rules.isNotEmpty()) {
+                rules.forEach { sb.append(it.selector).append("{display:none!important;}") }
+            }
+        }
         if (sb.isEmpty()) return
         val css = sb.toString().replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
         view.evaluateJavascript(
@@ -83,10 +108,17 @@ class BrowserWebViewClient(
         )
     }
 
-    private fun injectUserScript(view: WebView) {
-        val script = prefs.userScript
-        if (script.isBlank()) return
-        view.evaluateJavascript("(function(){try{$script}catch(e){console.log(e)}})();", null)
+    private fun injectUserScript(view: WebView, runAt: String) {
+        if (runAt == Userscript.RUN_DOC_END && prefs.userScript.isNotBlank()) {
+            view.evaluateJavascript("(function(){try{${prefs.userScript}}catch(e){console.log(e)}})();", null)
+        }
+        if (!prefs.userscriptsEnabled) return
+        val url = view.url ?: return
+        userscripts.all().forEach { s ->
+            if (!s.enabled || s.runAt != runAt) return@forEach
+            if (!s.matchesUrl(url)) return@forEach
+            view.evaluateJavascript("(function(){try{${s.source}}catch(e){console.log(e)}})();", null)
+        }
     }
 
     companion object {

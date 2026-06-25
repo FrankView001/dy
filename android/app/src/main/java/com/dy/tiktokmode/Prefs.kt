@@ -65,6 +65,19 @@ class Prefs(context: Context) {
         get() = sp.getString("user_script", "") ?: ""
         set(v) = sp.edit().putString("user_script", v).apply()
 
+    var adBlockBuiltInEnabled: Boolean
+        get() = sp.getBoolean("ad_block_builtin", true)
+        set(v) = sp.edit().putBoolean("ad_block_builtin", v).apply()
+
+    var userscriptsEnabled: Boolean
+        get() = sp.getBoolean("us_enabled", true)
+        set(v) = sp.edit().putBoolean("us_enabled", v).apply()
+
+    /** "never" / "daily" / "every3" / "weekly" / "monthly" */
+    var userscriptAutoUpdate: String
+        get() = sp.getString("us_auto_update", "never") ?: "never"
+        set(v) = sp.edit().putString("us_auto_update", v).apply()
+
     companion object {
         const val HOME_URL = "about:home"
     }

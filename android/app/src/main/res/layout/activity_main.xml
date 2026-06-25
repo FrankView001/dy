@@ -60,6 +60,28 @@
                     android:hint="搜索或输入网址" />
 
                 <ImageButton
+                    android:id="@+id/omniClearBtn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:scaleType="centerInside"
+                    android:padding="9dp"
+                    android:src="@drawable/ic_close"
+                    android:contentDescription="清空"
+                    android:visibility="gone" />
+
+                <ImageButton
+                    android:id="@+id/omniGoBtn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:scaleType="centerInside"
+                    android:padding="9dp"
+                    android:src="@drawable/ic_forward"
+                    android:contentDescription="搜索"
+                    android:visibility="gone" />
+
+                <ImageButton
                     android:id="@+id/refreshBtn"
                     android:layout_width="36dp"
                     android:layout_height="36dp"

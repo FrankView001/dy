@@ -29,5 +29,30 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:label="设置" />
+
+        <activity
+            android:name=".LibraryActivity"
+            android:exported="false"
+            android:label="书签" />
+
+        <activity
+            android:name=".DownloadsActivity"
+            android:exported="false"
+            android:label="下载" />
+
+        <activity
+            android:name=".AdBlockSettingsActivity"
+            android:exported="false"
+            android:label="广告拦截" />
+
+        <activity
+            android:name=".UserscriptListActivity"
+            android:exported="false"
+            android:label="脚本" />
+
+        <activity
+            android:name=".UserscriptEditActivity"
+            android:exported="false"
+            android:label="编辑脚本" />
     </application>
 </manifest>

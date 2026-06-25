@@ -14,9 +14,27 @@ object AdBlocker {
     @Volatile
     var enabled: Boolean = true
 
+    @Volatile
+    var builtInEnabled: Boolean = true
+
     private val blockedSuffixes = HashSet<String>()
+    private val extraSuffixes = HashSet<String>()
     private val decisionCache = HashMap<String, Boolean>()
     private var loaded = false
+
+    /** Append additional blocked-hostname suffixes loaded from rule subscriptions. */
+    @Synchronized
+    fun addSuffixes(suffixes: Collection<String>) {
+        if (suffixes.isEmpty()) return
+        suffixes.forEach { extraSuffixes.add(it.trim().lowercase()) }
+        decisionCache.clear()
+    }
+
+    @Synchronized
+    fun clearExtraSuffixes() {
+        extraSuffixes.clear()
+        decisionCache.clear()
+    }
 
     @Synchronized
     fun init(context: Context) {
@@ -37,21 +55,20 @@ object AdBlocker {
     }
 
     fun shouldBlock(host: String?): Boolean {
-        if (!enabled || host.isNullOrEmpty() || blockedSuffixes.isEmpty()) return false
+        if (!enabled || host.isNullOrEmpty()) return false
         val h = host.lowercase()
         decisionCache[h]?.let { return it }
 
-        var blocked = false
-        if (blockedSuffixes.contains(h)) {
-            blocked = true
-        } else {
-            // Walk parent domains: a.b.exoclick.com -> b.exoclick.com -> exoclick.com
+        val pool = HashSet<String>()
+        if (builtInEnabled) pool.addAll(blockedSuffixes)
+        pool.addAll(extraSuffixes)
+        if (pool.isEmpty()) { decisionCache[h] = false; return false }
+
+        var blocked = pool.contains(h)
+        if (!blocked) {
             var idx = h.indexOf('.')
             while (idx != -1 && idx + 1 < h.length) {
-                if (blockedSuffixes.contains(h.substring(idx + 1))) {
-                    blocked = true
-                    break
-                }
+                if (pool.contains(h.substring(idx + 1))) { blocked = true; break }
                 idx = h.indexOf('.', idx + 1)
             }
         }
